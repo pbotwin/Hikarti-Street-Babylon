@@ -48,8 +48,8 @@ async function boot() {
   scene.skipPointerMovePicking = true;
   addEventListener('resize', () => engine.resize());
   const camera = new UniversalCamera('camera', new Vector3(0, 2, -5), scene);
-  camera.minZ = 0.15;
-  camera.maxZ = 1200;
+  camera.minZ = 0.2;
+  camera.maxZ = 400;      // the original's far plane: the skyline beyond is fog
   camera.inputs.clear();
 
   const input = new MobileInput(document.getElementById('ui'));

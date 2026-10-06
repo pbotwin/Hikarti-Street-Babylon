@@ -76,7 +76,13 @@ export class Graphics {
     ToonPlugin.ambient.copyFrom(this.hemi.diffuse).addInPlace(this.hemi.groundColor).scaleInPlace(0.5 * this.hemi.intensity / Math.PI);
 
     // Image-based lighting from the sky (captured once).
-    const probe = new ReflectionProbe('skyProbe', 128, scene, true, true);
+    // Linear HDR (float, linearSpace): flagged as gamma space, every
+    // reflection was linearised a second time and metal went near-black.
+    const probe = new ReflectionProbe('skyProbe', 128, scene, true, true, true);
+    // In a right-handed scene the probe captured ±Y the wrong way round:
+    // upward surfaces reflected the ground-side haze and downward ones the
+    // dark zenith (black rims, orange glints on car edges).
+    probe._invertYAxis = true;
     probe.renderList.push(sky);
     probe.refreshRate = 0;   // render once
     // Then GGX-prefiltered once, like the original's PMREM: unfiltered, every

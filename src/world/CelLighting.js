@@ -37,6 +37,9 @@ export class CelLighting extends MaterialPluginBase {
     // Characters have their own cel bands (Vrm.js ToonPlugin).
     defines.CEL_LIGHTING = !this._material.pluginManager.getPlugin('Toon')?.isEnabled && !this._material.unlit;
     defines.CEL_SOFT = this._soft;
+    // three's standard material has no radiance occlusion; with it, sky
+    // reflections on metal (car rims, chrome) dropped to a fifth.
+    defines.RADIANCEOCCLUSION = false;
   }
 
   getCustomCode(shaderType) {
