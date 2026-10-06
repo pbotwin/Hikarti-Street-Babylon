@@ -1,0 +1,79 @@
+.minimap .map-drawing { position: relative; width: 100%; height: 100%; }
+.map-heading, .map-tools, .map-legend, .map-help, .map-close, .map-location { display: none; }
+.map-open { position: absolute; inset: 0; z-index: 1; border: 0; background: transparent; pointer-events: auto; border-radius: 50%; cursor: pointer; }
+.minimap.big {
+  position: fixed; top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%);
+  width: min(94vw, 720px); height: min(90dvh, 880px); border-radius: 22px; z-index: 25;
+  display: flex; flex-direction: column; background: #20293df5; pointer-events: auto;
+  border: 1px solid #b6d0e84d; box-shadow: 0 0 0 100vmax #10182bd1, 0 24px 70px #0008;
+  transition: none;
+}
+.minimap.big .map-open { display: none; }
+.minimap.big .map-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 12px; flex: none; }
+.map-heading > div { display: flex; flex-direction: column; gap: 4px; }
+.map-heading small { color: #a5c9d1; font-size: 9px; letter-spacing: 0.2em; }
+.map-heading b { font-family: var(--serif); font-size: 22px; font-weight: 600; }
+.minimap.big .map-close { display: block; width: 38px; height: 38px; border: 1px solid #ffffff35; border-radius: 50%; background: #ffffff0c; color: white; font-size: 25px; cursor: pointer; }
+.minimap.big .map-tools { display: flex; align-items: center; gap: 8px; padding: 0 18px 12px; flex: none; }
+.map-tools button { min-width: 44px; min-height: 40px; padding: 6px 12px; border-radius: 8px; border: 1px solid #b8d4e438; background: #d3e4ed0c; color: #e2edf3; font: 600 11px/1.2 var(--font); cursor: pointer; touch-action: manipulation; }
+.map-tools button:hover { background: #d3e4ed20; }
+.map-tools button:disabled { opacity: .35; cursor: default; }
+.map-tools .map-zoom { display: flex; align-items: center; margin-right: auto; gap: 4px; }
+.map-zoom button { padding: 4px 10px; font: 400 23px/1 var(--font); }
+.map-zoom-level { width: 34px; text-align: center; color: #b9d8e4; font-size: 11px; font-variant-numeric: tabular-nums; }
+.minimap.big button:focus-visible { outline: 2px solid #8ce5f5; outline-offset: 2px; }
+.minimap.big .map-drawing { flex: 1; min-height: 0; height: auto; width: 100%; overflow: hidden; }
+.minimap.big canvas { height: 100%; width: 100%; touch-action: none; cursor: grab; }
+.minimap.big canvas:focus-visible { outline: 2px solid #8ce5f560; outline-offset: -3px; }
+.minimap.big.is-panning canvas { cursor: grabbing; }
+.minimap.big .n { right: 16px; top: 12px; font-size: 13px; color: #d0e9ed; pointer-events: none; }
+.minimap.big .map-location:not(:empty) { position: absolute; display: block; left: 12px; bottom: 10px; max-width: calc(100% - 24px); padding: 7px 10px; border: 1px solid #b8d4e430; border-radius: 8px; background: #152235ec; color: #f0e4c9; font-size: 11px; line-height: 1.4; pointer-events: none; }
+.minimap.big .map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px; padding: 12px 16px 4px; font-size: 10px; border-top: 1px solid #ffffff18; }
+.map-legend span { display: inline-flex; gap: 5px; align-items: center; }
+.map-legend i { width: 7px; height: 7px; border-radius: 50%; background: #e7d9f3; }
+.map-legend .you { background: #6ae2ff; }
+.map-legend .fragment { background: #ffd24a; }
+.map-legend .favor { background: #af9cff; }
+.map-legend .objective { background: #77e9c0; transform: rotate(45deg); border-radius: 1px; }
+.map-legend .landmark { background: #ead6ac; transform: rotate(45deg); border-radius: 1px; }
+.map-legend .shop { background: linear-gradient(135deg, #e79ab4, #59b37a 50%, #b98a5e); }
+.minimap.big .map-help { display: block; margin: 6px 20px 16px; text-align: center; font-size: 10px; line-height: 1.5; color: #c1cddd; }
+.sheet-card { max-height: calc(88dvh - var(--sat) - var(--sab)); overflow-y: auto; overscroll-behavior: contain; }
+.sheet-card, .mission-dialog { touch-action: pan-y; }
+.track-mission { align-self: flex-start; margin-top: 10px; padding: 6px 10px; border: 1px solid #77e9c050; border-radius: 7px; background: #77e9c010; color: #baf4de; font: inherit; font-size: 11px; cursor: pointer; }
+.journal-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 22px; }
+.journal-heading h3 { margin: 0; font-family: var(--serif); font-size: 18px; font-weight: 600; }
+.journal-heading > span { font-size: 11px; color: #bbd2e0; }
+.sheet .journal-intro { margin: 8px 0 14px; }
+.journal-quest { background: #ffffff08; border: 1px solid #ffffff1c; border-left: 3px solid #af9cff; border-radius: 12px; padding: 12px; margin: 10px 0; }
+.journal-quest-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px; }
+.journal-quest-top b { font-size: 13px; }
+.quest-status { font-size: 9px; color: #d5c9ff; background: #af9cff18; border-radius: 20px; padding: 3px 7px; }
+.journal-quest p { font-size: 11px; line-height: 1.6; color: #c7d1e3; margin: 8px 0; }
+.journal-quest > strong { display: block; font-size: 11px; line-height: 1.5; color: #e7e9f7; font-weight: 500; }
+.journal-quest-bottom { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; color: #dcc598; margin-top: 10px; }
+.journal-quest.active, .journal-quest.ready { border-left-color: #77e9c0; }
+.journal-quest.completed { opacity: 0.65; border-left-color: #a0cfb4; }
+.wallet { display: flex; justify-content: space-between; align-items: center; background: #e5c77810; border: 1px solid #e5c77833; border-radius: 12px; padding: 14px; margin-bottom: 16px; font-size: 12px; }
+.wallet b { color: #ffe2a0; font-size: 24px; }
+.wallet small { font-size: 17px; }
+.sheet button, .map-close { touch-action: manipulation; }
+@media (max-width: 540px) {
+  .minimap.big .map-tools { gap: 5px; padding: 0 12px 10px; }
+  .map-tools button { padding: 6px 9px; font-size: 10px; }
+  .map-zoom button { font-size: 22px; }
+  .hud .counter .label { display: none; }
+  .hud .counter, .hud .pips { left: 57%; }
+  .place-card { max-width: 42vw; }
+  .place-card b { font-size: 11px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .minimap.big { width: min(94vw, 880px); height: 96dvh; top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); }
+  .minimap.big .map-heading { padding: 8px 16px 3px; }
+  .minimap.big .map-tools { position: absolute; right: 65px; top: 5px; padding: 0; gap: 6px; }
+  .map-tools button { min-height: 34px; }
+  .map-heading b { font-size: 17px; }
+  .map-heading small, .minimap.big .map-help { display: none; }
+  .minimap.big .map-legend { padding: 5px 12px; }
+  .minimap.big .n { top: 10px; }
+}
