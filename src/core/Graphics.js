@@ -122,11 +122,10 @@ export class Graphics {
     ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
 
     this.casters = [];
-    // Shadow square around her (the original's Lighting): light-space basis,
-    // and the casters inside the square at the last redraw.
-    const fwd = this.sunDir.scale(-1);
-    const right = Vector3.Cross(fwd, Vector3.Up()).normalize();
-    this._basis = { fwd, right, up: Vector3.Cross(right, fwd).normalize() };
+    // Shadow square around her (the original's Lighting): light-space basis
+    // (rebuilt when the sun turns, as it does inside the shops), and the
+    // casters inside the square at the last redraw.
+    this._basis = { fwd: new Vector3(), right: new Vector3(), up: new Vector3() };
     this._shadowCenter = new Vector3();
     this._shadowList = [];
 
@@ -221,6 +220,11 @@ export class Graphics {
     this.skyDome.update(dt);
     if (!focus) return;
     const { right, up, fwd } = this._basis;
+    this.sunDir.scaleToRef(-1, fwd);
+    Vector3.CrossToRef(fwd, Vector3.UpReadOnly, right);
+    right.normalize();
+    Vector3.CrossToRef(right, fwd, up);
+    up.normalize();
     const texel = (SHADOW_EXTENT * 2) / this.shadowSize();
     const u = Math.round(Vector3.Dot(focus, right) / texel) * texel;
     const v = Math.round(Vector3.Dot(focus, up) / texel) * texel;
@@ -325,6 +329,50 @@ export class Graphics {
       this.casters.push(m);
       this.shadows?.addShadowCaster(m, false);
     }
+  }
+
+  /**
+   * Swap the scene's environment (the sky ↔ a shop's photo). Babylon's
+   * setter marks every material dirty, walking every mesh for each material:
+   * ~1 s with this city, a freeze at every shop door. Here only `meshes`
+   * (what draws while it is set) re-read their shader settings; everything
+   * else keeps the ones it had, which are right again once it's swapped back.
+   */
+  setEnvironment(texture, meshes) {
+    const scene = this.scene;
+    if (scene.environmentTexture === texture) return;
+    scene._environmentTexture = texture;
+    for (const m of meshes) for (const sm of m.subMeshes || []) sm.materialDefines?.markAsTexturesDirty();
+  }
+
+  /**
+   * Draw everything once behind the loading screen, unculled and into the
+   * shadow map (the original's warmUp): drivers finish a shader on its first
+   * draw (up to ~0.4 s, even when compiled ahead) and upload geometry then,
+   * so whatever is first seen in play (a car's cabin, a far model, a shop)
+   * stuttered.
+   */
+  async warmUp() {
+    const scene = this.scene, saved = [];
+    for (const n of [...scene.transformNodes, ...scene.meshes]) {
+      if (n.isDisposed()) continue;
+      saved.push([n, n.isEnabled(false), n.isVisible, n.alwaysSelectAsActiveMesh]);
+      n.setEnabled(true);
+      if (n.getTotalVertices) { n.isVisible = true; n.alwaysSelectAsActiveMesh = true; }
+    }
+    const list = this._shadowList;
+    this._shadowList = this.casters.filter((m) => !m.isDisposed());
+    this.shadows?.getShadowMap()?.resetRefreshCounter();
+    scene.incrementRenderId();
+    await scene.whenReadyAsync();
+    scene.render();
+    this.engine._gl?.finish();
+    this._shadowList = list;
+    for (const [n, enabled, visible, always] of saved) {
+      n.setEnabled(enabled);
+      if (n.getTotalVertices) { n.isVisible = visible; n.alwaysSelectAsActiveMesh = always; }
+    }
+    this._shadowAt = -Infinity;
   }
 
   /** Stop meshes casting (call before disposing them). */

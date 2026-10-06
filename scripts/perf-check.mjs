@@ -83,13 +83,16 @@ await page.evaluate(() => {
   const tick = () => { const now = performance.now(); if (now - last > 50) rec.hitches.push(`${rec.label} ${Math.round(now - last)} ms`); last = now; requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
 });
-const counts = () => page.evaluate(() => {
+// Garbage collected first: otherwise the heap figure includes whatever the
+// lap left for the collector, and a lap can look like a leak when it isn't.
+const cdp = await page.context().newCDPSession(page);
+const counts = async () => (await cdp.send('HeapProfiler.collectGarbage'), page.evaluate(() => {
   const { scene, engine } = window.__game;
   return {
     geometries: scene.geometries.length, materials: scene.materials.length, textures: scene.textures.length,
     programs: Object.keys(engine._compiledEffects).length, heapMB: Math.round(performance.memory.usedJSHeapSize / 1048576),
   };
-});
+}));
 const laps = [];
 for (let lap = 1; lap <= 2; lap++) {
   for (const [x, z] of TOUR) {

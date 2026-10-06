@@ -15,6 +15,7 @@ import { CollectibleSystem } from './gameplay/CollectibleSystem.js';
 import { PortalSystem } from './gameplay/PortalSystem.js';
 import { Effects } from './gameplay/Effects.js';
 import { UI } from './ui/UI.js';
+import { releasePositionCaches } from './core/Memory.js';
 import { Minimap } from './ui/Minimap.js';
 import { HudMenu } from './ui/HudMenu.js';
 import { FpsMeter } from './ui/FpsMeter.js';
@@ -153,8 +154,11 @@ async function boot() {
   await npcs.ready;
   ui.setLoading(0.985, 'Opening the shops…');
   await interiors.init();
+  await interiors.captureAll();
   saves.interiors = interiors;
-  await scene.whenReadyAsync();
+  releasePositionCaches(scene.meshes);
+  // Shaders and geometry finished on the GPU now, not on first sight in play.
+  await graphics.warmUp();
   ui.setLoading(1, 'Ready');
 
   if (params.has('continue')) state.emit('ui:load');

@@ -3,6 +3,7 @@ import {
 } from '@babylonjs/core';
 import { loadVrm } from '../player/Vrm.js';
 import { retonePixels } from './retonePixels.js';
+import { releasePositionCaches } from '../core/Memory.js';
 
 /**
  * Anime residents built from VRoid characters (same style as the heroine).
@@ -358,6 +359,7 @@ export async function createResident(look) {
   model.parent = root;
   // look.height is in metres (head top); bases differ a lot in size.
   model.scaling.setAll((look.height || 1.6) / base.height);
+  releasePositionCaches(meshes);
   return {
     root, model, bones, rest, skeleton: copy.skeletons[0], meshes, casters, outlines, outlinesOn: true,
     blink: blink.length ? blink : null, mouth: mouth.length ? mouth : null,

@@ -67,9 +67,11 @@ RegisterMaterialPlugin('Toon', (material) => (material instanceof PBRMaterial ? 
 
 // ---------------------------------------------------------------- rig
 const quatXYZ = (x, y, z, out = new Quaternion()) => {
-  // three.js Euler 'XYZ' (R = Rx · Ry · Rz) as a quaternion.
-  const qx = Quaternion.RotationAxis(Vector3.Right(), x), qy = Quaternion.RotationAxis(Vector3.Up(), y), qz = Quaternion.RotationAxis(new Vector3(0, 0, 1), z);
-  return qx.multiplyToRef(qy, out).multiplyInPlace(qz);
+  // three.js Euler 'XYZ' (R = Rx · Ry · Rz) as a quaternion, in closed form
+  // (called for every bone every frame: nothing allocated).
+  const c1 = Math.cos(x / 2), c2 = Math.cos(y / 2), c3 = Math.cos(z / 2);
+  const s1 = Math.sin(x / 2), s2 = Math.sin(y / 2), s3 = Math.sin(z / 2);
+  return out.set(s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 + s1 * s2 * c3, c1 * c2 * c3 - s1 * s2 * s3);
 };
 
 export class HumanoidRig {

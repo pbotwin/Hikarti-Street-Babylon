@@ -146,6 +146,12 @@ export class InteriorSystem {
 
   _staffMeshes(room) { return room.staff ? room.staff.meshes : []; }
 
+  /** What draws inside a shop: its room, goods and staff, her and what she carries. */
+  _indoorMeshes(room) {
+    const held = [this._basketNode, this._bagNode, this._keysNode].flatMap((n) => n?.getChildMeshes() || []);
+    return [...(room ? [...room.group.getChildMeshes(false), ...this._staffMeshes(room)] : []), ...this.character.meshes, ...held, this._sparkleMesh].filter(Boolean);
+  }
+
   /**
    * Compile every shader the shops will use while the loading screen is up
    * (rooms stocked as the window photos will show them, staff, the things
@@ -173,6 +179,39 @@ export class InteriorSystem {
    * while she is inside); the shaders that use it are started here, not on
    * her first step inside.
    */
+  /**
+   * Take every window photo now, behind the loading screen: each one switches
+   * the scene to shop lighting and renders a cubemap (~0.1 s), which in play
+   * stuttered the first seconds. Frames are drawn in between, since a photo
+   * needs the lights' shader data set up first.
+   */
+  async captureAll() {
+    for (let frame = 0; this.fronts?.pending.length && frame < 600; frame++) {
+      this.scene.render();
+      this._capturePending();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    // The shaders as they draw inside (shop light, the room's photo as the
+    // environment, its name sign and street view) differ from the street's:
+    // each shop is entered and left once now, quietly, so they compile here
+    // and not at the door (a dozen per shop, ~100 ms frames on entering).
+    const p = this.player.position, back = { x: p.x, y: p.y, z: p.z, yaw: this.player.yaw };
+    for (const room of Object.values(this.rooms)) {
+      const spot = this._sample[room.kind];
+      if (!room.env || !spot) continue;
+      this._open(spot, back, true);
+      await this._compileVisible();
+      this._close(true);
+      await this._compileVisible();
+    }
+  }
+
+  /** Compile what draws in the current state (a new render id: within one, readiness is cached). */
+  _compileVisible() {
+    this.scene.incrementRenderId();
+    return this.scene.whenReadyAsync();
+  }
+
   _capturePending() {
     const kind = this.fronts?.pending[0];
     // Not before the first frames are drawn: until then the lights' shader
@@ -223,47 +262,56 @@ export class InteriorSystem {
     if (!room || this.inside || this._fading) return;
     const p = this.player.position;
     const back = { x: p.x, y: p.y, z: p.z, yaw: this.player.yaw + Math.PI };
-    this._fade(() => {
-      this._captureView(room, back);
-      this.inside = { room, kind, spot, back, def: SHOPS[spot.shop] };
-      this._stock(room, spot);
-      letter(room, spot.name, this._subtitle(spot), SHOPS[spot.shop].color);
-      this._hideWorld(true);
-      room.group.setEnabled(true);
-      for (const d of room.doors) d.position.x = d.metadata.openX;
-      this._indoor(true, room);
-      const e = room.entry;
-      this._place(room.origin.x + e.x, room.origin.z + e.z, e.yaw);
-      this.cameraRig.zoomTarget = 0.72;
-      document.documentElement.dataset.interior = kind;
-      this.hint.textContent = `${spot.name} · walk back out through the door to leave`;
-      this._chime();
-      this.state.emit('shop:open', { shop: spot.shop, name: spot.name });
-      this.state.emit('interior:enter', { name: spot.name, kind });
-    });
+    this._fade(() => this._open(spot, back));
+  }
+
+  /** Step inside (while faded). `quiet`: the loading warm-up, no sound, UI or events. */
+  _open(spot, back, quiet = false) {
+    const kind = TEMPLATE_OF[spot.shop], room = this.rooms[kind];
+    this._captureView(room, back);
+    this.inside = { room, kind, spot, back, def: SHOPS[spot.shop] };
+    this._stock(room, spot);
+    letter(room, spot.name, this._subtitle(spot), SHOPS[spot.shop].color);
+    this._hideWorld(true);
+    room.group.setEnabled(true);
+    for (const d of room.doors) d.position.x = d.metadata.openX;
+    this._indoor(true, room);
+    const e = room.entry;
+    this._place(room.origin.x + e.x, room.origin.z + e.z, e.yaw);
+    if (quiet) return;
+    this.cameraRig.zoomTarget = 0.72;
+    document.documentElement.dataset.interior = kind;
+    this.hint.textContent = `${spot.name} · walk back out through the door to leave`;
+    this._chime();
+    this.state.emit('shop:open', { shop: spot.shop, name: spot.name });
+    this.state.emit('interior:enter', { name: spot.name, kind });
   }
 
   leave(instant = false) {
     if (!this.inside) return;
-    const go = () => {
-      const { room, back } = this.inside;
-      this._standUp(true);
-      this._dropBasket();
-      if (this.bag) this._putBagAway(true);
-      this.shops.previewOutfit(null);
-      room.group.setEnabled(false);
-      this._hideWorld(false);
-      this._indoor(false);
-      this.cameraRig.zoomTarget = 1;
-      this._place(back.x, back.z, back.yaw, back.y);
-      delete document.documentElement.dataset.interior;
-      if (this._unlock) { const v = this._unlock; this._unlock = null; setTimeout(() => this._chirp(v), 700); }
-      this.inside = null;
-      this.busy = false;
-      this.anims.length = 0;
-      this.state.emit('interior:leave');
-    };
+    const go = () => this._close();
     if (instant) go(); else this._fade(go);
+  }
+
+  /** Step back out (while faded). `quiet`: the loading warm-up. */
+  _close(quiet = false) {
+    const { room, back } = this.inside;
+    this._standUp(true);
+    this._dropBasket();
+    if (this.bag) this._putBagAway(true);
+    this.shops.previewOutfit(null);
+    room.group.setEnabled(false);
+    this._hideWorld(false);
+    this._indoor(false);
+    this._place(back.x, back.z, back.yaw, back.y);
+    this.inside = null;
+    this.busy = false;
+    this.anims.length = 0;
+    if (quiet) return;
+    this.cameraRig.zoomTarget = 1;
+    delete document.documentElement.dataset.interior;
+    if (this._unlock) { const v = this._unlock; this._unlock = null; setTimeout(() => this._chirp(v), 700); }
+    this.state.emit('interior:leave');
   }
 
   /**
@@ -350,7 +398,7 @@ export class InteriorSystem {
       this._light = {
         dir: L.sunDir.clone(), color: L.sun.diffuse, spec: L.sun.specular, i: L.sun.intensity, sky: L.hemi.diffuse, ground: L.hemi.groundColor, hi: L.hemi.intensity,
         toonSun: ToonPlugin.sun.clone(), toonAmb: ToonPlugin.ambient.clone(),
-        rays: this.gfx.raysAllowed, env: scene.environmentTexture, envI: scene.environmentIntensity, darkness: this.gfx.shadows.darkness,
+        rays: this.gfx.raysAllowed, env: scene.environmentTexture, envI: scene.environmentIntensity, darkness: this.gfx.shadows.darkness, room,
         ink: this.character.meshes.filter((m) => m.renderOutline),
       };
       L.sunDir.set(0.12, 0.97, 0.2).normalize();
@@ -366,7 +414,7 @@ export class InteriorSystem {
       ToonPlugin.sun.copyFrom(L.sun.diffuse).scaleInPlace(L.sun.intensity / Math.PI);
       ToonPlugin.ambient.copyFrom(L.hemi.diffuse).addInPlace(L.hemi.groundColor).scaleInPlace(0.5 * L.hemi.intensity / Math.PI);
       // No photo yet: no reflections (the sky's would light the room orange).
-      if (env) scene.environmentTexture = env;
+      if (env) this.gfx.setEnvironment(env, this._indoorMeshes(room));
       scene.environmentIntensity = env ? 0.85 : 0;
       for (const m of this._light.ink) m.renderOutline = false;
       this.gfx.raysAllowed = false;
@@ -375,7 +423,7 @@ export class InteriorSystem {
       L.sunDir.copyFrom(s.dir); L.sun.diffuse = s.color; L.sun.specular = s.spec; L.sun.intensity = s.i;
       ToonPlugin.sun.copyFrom(s.toonSun); ToonPlugin.ambient.copyFrom(s.toonAmb);
       L.hemi.diffuse = s.sky; L.hemi.groundColor = s.ground; L.hemi.intensity = s.hi;
-      scene.environmentTexture = s.env; scene.environmentIntensity = s.envI;
+      this.gfx.setEnvironment(s.env, this._indoorMeshes(s.room)); scene.environmentIntensity = s.envI;
       for (const m of s.ink) m.renderOutline = true;
       this.gfx.raysAllowed = s.rays;
       this._light = null;

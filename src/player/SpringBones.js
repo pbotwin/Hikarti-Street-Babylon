@@ -78,19 +78,22 @@ export class SpringBones {
   update(dt) {
     if (dt <= 0) return;
     this.center.invertToRef(this._centerInv);
-    for (const c of this.colliders) {
-      const m = c.node.computeWorldMatrix(true);
+    const cs = this.colliders, js = this.joints;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i], m = c.node.computeWorldMatrix(true);
       Vector3.TransformCoordinatesToRef(c.offset, m, c.w0);
       if (c.tail) Vector3.TransformCoordinatesToRef(c.tail, m, c.w1);
     }
-    for (const j of this.joints) {
-      const st = j.settings, node = j.node;
+    for (let k = 0; k < js.length; k++) {
+      const j = js[k], st = j.settings, node = j.node;
       // Rest pose for this frame, under the animated parent.
       node.rotationQuaternion.copyFrom(j.restRot);
       node.computeWorldMatrix(true);
       const head = _v1.copyFrom(node.getAbsolutePosition());
-      // Parent world rotation × rest local rotation = rest world rotation.
-      node.parent.absoluteRotationQuaternion.multiplyToRef(j.restRot, _q1);
+      // Rest world rotation (parent world × rest local), read from the world
+      // matrix just computed: characters are unscaled, and the getter
+      // (absoluteRotationQuaternion) decomposed with temporaries per joint.
+      Quaternion.FromRotationMatrixToRef(node.getWorldMatrix(), _q1);
 
       // Verlet in center space: inertia (minus drag), stiffness toward the
       // rest direction, gravity.
@@ -102,7 +105,7 @@ export class SpringBones {
       next.addInPlace(st.gravityDir.scaleToRef(st.gravityPower * dt, _v5));
       this._constrain(next, head, j.length);
 
-      for (const c of j.colliders) this._collide(c, next, head, j.length, st.hitRadius);
+      for (let i = 0; i < j.colliders.length; i++) this._collide(j.colliders[i], next, head, j.length, st.hitRadius);
 
       j.prevTail.copyFrom(j.tail);
       Vector3.TransformCoordinatesToRef(next, this._centerInv, j.tail);
