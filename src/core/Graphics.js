@@ -1,5 +1,5 @@
 import {
-  Vector3, Color3, Color4, DirectionalLight, HemisphericLight, CascadedShadowGenerator,
+  Vector3, Color3, Color4, DirectionalLight, HemisphericLight, ShadowGenerator,
   DefaultRenderingPipeline, SSAO2RenderingPipeline, SSRRenderingPipeline, ReflectionProbe, ImageProcessingConfiguration, ColorCurves,
   Constants, RenderTargetTexture,
 } from '@babylonjs/core';
@@ -12,17 +12,22 @@ import { ToonPlugin } from '../player/Vrm.js';
  *  - the original's painted golden-hour sky and fog (world/Sky.js)
  *  - image-based lighting captured from that sky, so PBR surfaces are lit
  *    by the real sky colour (ReflectionProbe → environmentTexture)
- *  - a warm low sun with cascaded shadow maps (sharp near her, soft far)
+ *  - a warm low sun with the original's shadow map: one ±22 m square that
+ *    follows her, snapped to texels, holding only the casters inside it
  *  - HDR post: MSAA, bloom, ACES tone mapping, contrast, vignette, sharpen
- *  - SSAO2 ambient occlusion (contact shadows in corners and under things)
- *  - screen-space reflections on High / Ultra
- * Presets scale shadow resolution, AO, reflections and render scale.
+ *  - Ultra only, beyond the original: SSAO2 contact shadows and screen-space
+ *    reflections
+ * Presets scale shadow resolution and softness, post effects and render scale.
  */
+// The original's shadow square (half size, m) and how far behind it the light sits.
+const SHADOW_EXTENT = 22;
+const SHADOW_BACK = 70;
+
 export const PRESETS = {
-  low: { label: 'Low', scale: 0.75, shadow: 1024, cascades: 2, ssao: false, ssr: false, msaa: 1, fxaa: true, bloom: false },
-  medium: { label: 'Medium', scale: 1, shadow: 2048, cascades: 3, ssao: true, ssr: false, msaa: 2, fxaa: false, bloom: true },
-  high: { label: 'High', scale: 1, shadow: 2048, cascades: 3, ssao: true, ssr: false, msaa: 4, fxaa: false, bloom: true },
-  ultra: { label: 'Ultra', scale: 1, shadow: 4096, cascades: 4, ssao: true, ssr: true, msaa: 4, fxaa: false, bloom: true },
+  low: { label: 'Low', scale: 0.75, shadow: 1024, softShadows: false, ssao: false, ssr: false, msaa: 1, fxaa: true, bloom: false },
+  medium: { label: 'Medium', scale: 1, shadow: 2048, softShadows: false, ssao: false, ssr: false, msaa: 2, fxaa: false, bloom: true },
+  high: { label: 'High', scale: 1, shadow: 2048, softShadows: true, ssao: false, ssr: false, msaa: 4, fxaa: false, bloom: true },
+  ultra: { label: 'Ultra', scale: 1, shadow: 4096, softShadows: true, ssao: true, ssr: true, msaa: 4, fxaa: false, bloom: true },
 };
 
 /** Preset for this device from the GPU name, platform and memory. */
@@ -117,6 +122,13 @@ export class Graphics {
     ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
 
     this.casters = [];
+    // Shadow square around her (the original's Lighting): light-space basis,
+    // and the casters inside the square at the last redraw.
+    const fwd = this.sunDir.scale(-1);
+    const right = Vector3.Cross(fwd, Vector3.Up()).normalize();
+    this._basis = { fwd, right, up: Vector3.Cross(right, fwd).normalize() };
+    this._shadowCenter = new Vector3();
+    this._shadowList = [];
 
     // Quality governor hooks (AdaptivePerformance): render scale, the costly
     // screen effects, and how often the shadow maps are redrawn.
@@ -138,6 +150,7 @@ export class Graphics {
       const now = performance.now();
       if (this.shadows && now - this._shadowAt >= this.shadowInterval) {
         this._shadowAt = now;
+        this._cullShadowCasters();
         this.shadows.getShadowMap()?.resetRefreshCounter();
       }
     });
@@ -187,20 +200,48 @@ export class Graphics {
    * mixed white into its grading pass; here a page layer between the canvas
    * and the HUD does it with no extra full-screen GPU pass.
    */
-  setFade(v) {
+  setFade(v, color = '#e8e8e8') {
     if (!this._fade) {
       if (!v) return;
       this._fade = document.createElement('div');
-      this._fade.style.cssText = 'position:fixed;inset:0;background:#e8e8e8;opacity:0;pointer-events:none';
+      this._fade.style.cssText = 'position:fixed;inset:0;opacity:0;pointer-events:none';
       this.engine.getRenderingCanvas().after(this._fade);
     }
+    if (v && this._fadeColor !== color) { this._fadeColor = color; this._fade.style.background = color; }
     const o = String(Math.round(v * 1000) / 1000);
     if (this._fade.style.opacity !== o) this._fade.style.opacity = o;
   }
 
-  /** Per frame (main loop's lighting.update): the clouds drift. */
-  update(dt) {
+  /**
+   * Per frame (main loop's lighting.update): the clouds drift, and the shadow
+   * square stays centred on her, snapped to whole shadow-map texels in light
+   * space (without the snap, shadow edges crawl and shimmer as she walks).
+   */
+  update(dt, focus) {
     this.skyDome.update(dt);
+    if (!focus) return;
+    const { right, up, fwd } = this._basis;
+    const texel = (SHADOW_EXTENT * 2) / this.shadowSize();
+    const u = Math.round(Vector3.Dot(focus, right) / texel) * texel;
+    const v = Math.round(Vector3.Dot(focus, up) / texel) * texel;
+    const w = Vector3.Dot(focus, fwd);
+    const c = this._shadowCenter.set(right.x * u + up.x * v + fwd.x * w, right.y * u + up.y * v + fwd.y * w, right.z * u + up.z * v + fwd.z * w);
+    this.sun.position.set(c.x + this.sunDir.x * SHADOW_BACK, c.y + this.sunDir.y * SHADOW_BACK, c.z + this.sunDir.z * SHADOW_BACK);
+  }
+
+  /**
+   * Babylon draws every caster into the shadow map with no culling; like
+   * three's shadow camera, keep only those overlapping the shadow square.
+   */
+  _cullShadowCasters() {
+    const { right, up } = this._basis, c = this._shadowCenter, list = this._shadowList;
+    list.length = 0;
+    for (const m of this.casters) {
+      if (m.isDisposed() || !m.isEnabled()) continue;
+      const s = m.getBoundingInfo().boundingSphere, p = s.centerWorld, r = s.radiusWorld + SHADOW_EXTENT;
+      const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+      if (Math.abs(dx * right.x + dy * right.y + dz * right.z) < r && Math.abs(dx * up.x + dy * up.y + dz * up.z) < r) list.push(m);
+    }
   }
 
   /** Apply a preset (call once at start, again when changed). */
@@ -211,25 +252,26 @@ export class Graphics {
     const { scene, camera } = this;
     this._applyScale();
 
-    // Shadows: cascades sized to the street, re-made on a preset change.
+    // Shadows (the original's numbers): one map, a ±22 m square, 1–140 m deep.
     this.shadows?.dispose();
-    const csm = new CascadedShadowGenerator(p.shadow, this.sun);
-    csm.numCascades = p.cascades;
-    csm.lambda = 0.82;
-    csm.shadowMaxZ = 140;
-    csm.stabilizeCascades = true;
-    csm.cascadeBlendPercentage = 0.08;
-    csm.depthClamp = true;
-    csm.bias = 0.004;
-    csm.normalBias = 0.02;
-    csm.usePercentageCloserFiltering = true;
-    csm.filteringQuality = tier === 'low' ? Constants.TEXTURE_FILTERING_QUALITY_LOW : Constants.TEXTURE_FILTERING_QUALITY_HIGH;
-    csm.darkness = 0;   // shade is lit by the sky fill only, as in the original
-    for (const m of this.casters) csm.addShadowCaster(m, false);
+    const sun = this.sun;
+    sun.autoUpdateExtends = false;
+    sun.orthoLeft = -SHADOW_EXTENT; sun.orthoRight = SHADOW_EXTENT;
+    sun.orthoTop = SHADOW_EXTENT; sun.orthoBottom = -SHADOW_EXTENT;
+    sun.shadowMinZ = 1; sun.shadowMaxZ = 140;
+    const sg = new ShadowGenerator(p.shadow, sun);
+    sg.bias = 0.0008;
+    sg.normalBias = 0.02;
+    sg.usePercentageCloserFiltering = true;
+    sg.filteringQuality = p.softShadows ? Constants.TEXTURE_FILTERING_QUALITY_HIGH : Constants.TEXTURE_FILTERING_QUALITY_LOW;
+    sg.darkness = 0;   // shade is lit by the sky fill only, as in the original
+    for (const m of this.casters) sg.addShadowCaster(m, false);
+    const map = sg.getShadowMap();
+    map.getCustomRenderList = () => this._shadowList;
     // Drawn when the shadow timer says so (see the constructor), not every frame.
-    csm.getShadowMap().refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+    map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
     this._shadowAt = -Infinity;
-    this.shadows = csm;
+    this.shadows = sg;
 
     // Post-processing.
     this.pipeline?.dispose();
@@ -283,5 +325,12 @@ export class Graphics {
       this.casters.push(m);
       this.shadows?.addShadowCaster(m, false);
     }
+  }
+
+  /** Stop meshes casting (call before disposing them). */
+  removeCasters(meshes) {
+    const gone = new Set(meshes);
+    this.casters = this.casters.filter((m) => !gone.has(m));
+    for (const m of meshes) this.shadows?.removeShadowCaster(m, false);
   }
 }

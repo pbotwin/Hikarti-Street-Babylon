@@ -31,6 +31,10 @@ export class Wind {
       // Leaves, hedges and shrubs light as soft painted masses (SOFT_CEL);
       // bark (0.02 from 2 m, the original's barkMat) keeps the crisp ramp.
       if (!(strength === 0.02 && start === 2)) CelLighting.get(material).soft = true;
+      // Leaf cards light the same on both faces (the original's
+      // NO_NORMAL_FLIP): with flipped back-face normals half the leaves of a
+      // canopy went dark and it read as noise.
+      if (material.needAlphaTesting()) material.twoSidedLighting = false;
     }
     if (grass) {
       const material = exclusive(scene, grass.material, [grass], this.materials);

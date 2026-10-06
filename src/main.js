@@ -244,7 +244,7 @@ async function boot() {
     keepInPlayArea();
     audio.engine(vehicles.engine());
     cameraRig.update(dt, player, controlsActive);
-    lighting.update?.(dt, player.position, camera);
+    lighting.update(dt, player.position, camera);
     world.update(dt, camera, player);
     npcs.update(dt, player, vehicles.vehicles);
     audio.skid(tyreFX.update(dt, vehicles.vehicles).skid);
