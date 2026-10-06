@@ -20,7 +20,7 @@ class ToonPlugin extends MaterialPluginBase {
   constructor(material) {
     super(material, 'Toon', 300, { TOON: false });
     this.shade = new Color3(0.8, 0.7, 0.75);
-    this.params = [1.35, 0.18, 1.0, 0.86];   // band centre, band softness, lit gain, shade gain
+    this.params = [1.35, 0.18, 0.62, 0.5];   // band centre, band softness, direct gain, ambient gain
     this.enabled = false;
   }
   get isEnabled() { return this.enabled; }
@@ -29,34 +29,40 @@ class ToonPlugin extends MaterialPluginBase {
   getClassName() { return 'ToonPlugin'; }
   getUniforms() {
     return {
-      ubo: [{ name: 'toonShade', size: 3, type: 'vec3' }, { name: 'toonParams', size: 4, type: 'vec4' }],
-      fragment: '#ifdef TOON\nuniform vec3 toonShade;\nuniform vec4 toonParams;\n#endif',
+      ubo: [{ name: 'toonShade', size: 3, type: 'vec3' }, { name: 'toonParams', size: 4, type: 'vec4' }, { name: 'toonSun', size: 3, type: 'vec3' }, { name: 'toonAmb', size: 3, type: 'vec3' }],
+      fragment: '#ifdef TOON\nuniform vec3 toonShade;\nuniform vec4 toonParams;\nuniform vec3 toonSun;\nuniform vec3 toonAmb;\n#endif',
     };
   }
   bindForSubMesh(ubo) {
     if (!this.enabled) return;
     ubo.updateColor3('toonShade', this.shade);
     ubo.updateFloat4('toonParams', this.params[0], this.params[1], this.params[2], this.params[3]);
+    ubo.updateColor3('toonSun', ToonPlugin.sun);
+    ubo.updateColor3('toonAmb', ToonPlugin.ambient);
   }
   getCustomCode(type) {
     if (type !== 'fragment') return null;
     return {
-      // Light → cel bands: how bright the PBR result is relative to the bare
-      // albedo is the light received (sun, sky, shadows); above the band
-      // centre she's lit, below it in her MToon shade colour.
+      // Light → cel bands (like MToon): how bright the PBR result is
+      // relative to the bare albedo is the light received (sun, sky,
+      // shadows). Lit: albedo × sun colour; shade: albedo × MToon shade
+      // colour × sun colour; both plus the (equalized) sky ambient.
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
         #ifdef TOON
           float tLum = dot(finalColor.rgb, vec3(0.2126, 0.7152, 0.0722));
           float tAlb = max(dot(surfaceAlbedo, vec3(0.2126, 0.7152, 0.0722)), 0.02);
           float tK = smoothstep(toonParams.x - toonParams.y, toonParams.x + toonParams.y, tLum / tAlb);
-          vec3 tLit = surfaceAlbedo * toonParams.z;
-          vec3 tShade = surfaceAlbedo * toonShade * toonParams.w;
-          finalColor.rgb = mix(tShade, tLit, tK) + finalColor.rgb * 0.08;
+          vec3 tDirect = toonSun * toonParams.z * mix(toonShade, vec3(1.0), tK);
+          finalColor.rgb = surfaceAlbedo * (tDirect + toonAmb * toonParams.w) + finalColor.rgb * 0.05;
         #endif
       `,
     };
   }
 }
+// Scene light colours for the toon bands (set by Graphics).
+ToonPlugin.sun = new Color3(1, 0.78, 0.6);
+ToonPlugin.ambient = new Color3(0.66, 0.6, 0.62);
+export { ToonPlugin };
 RegisterMaterialPlugin('Toon', (material) => (material instanceof PBRMaterial ? new ToonPlugin(material) : null));
 
 // ---------------------------------------------------------------- rig
@@ -96,6 +102,7 @@ export class HumanoidRig {
     this.hipsRest = hips.position.clone();
     this._q = new Quaternion();
     this._t = new Quaternion();
+    this._v = new Vector3();
   }
 
   /** Normalized rotation (three.js XYZ Euler) for a humanoid bone. */
@@ -112,8 +119,8 @@ export class HumanoidRig {
   /** Hips offset (normalized frame, metres) from rest. */
   setHips(x, y, z) {
     const n = this.nodes.hips;
-    const v = new Vector3(x, y, z).applyRotationQuaternion(this.Pinv.hips);
-    n.position.copyFrom(this.hipsRest).addInPlace(v);
+    this._v.set(x, y, z).applyRotationQuaternionInPlace(this.Pinv.hips);
+    n.position.copyFrom(this.hipsRest).addInPlace(this._v);
   }
 }
 
@@ -163,7 +170,15 @@ export async function loadVrm(scene, file, { outline = true } = {}) {
     if (c?.aim) source = nodeByIndex.get(c.aim.source)?.parent;
     else if (c?.rotation) source = nodeByIndex.get(c.rotation.source);
     const node = nodeByIndex.get(i);
-    if (node && source && node !== source && node.parent !== source) node.setParent(source);
+    if (node && source && node !== source && node.parent !== source) {
+      node.setParent(source);
+      // Skinning follows the skeleton's Bone tree, not the node tree.
+      for (const sk of res.skeletons) {
+        const b = sk.bones.find((x) => x.getTransformNode() === node);
+        const pb = sk.bones.find((x) => x.getTransformNode() === source);
+        if (b && pb) b.setParent(pb, false);
+      }
+    }
   });
   // VRM 0.x models face -Z; VRM 1.0 face +Z.
   const frame = vrm1 ? Quaternion.Identity() : Quaternion.RotationAxis(Vector3.Up(), Math.PI);
@@ -234,5 +249,5 @@ export async function loadVrm(scene, file, { outline = true } = {}) {
   root.computeWorldMatrix(true);
   let maxY = 0;
   for (const m of meshes) { m.computeWorldMatrix(true); const bb = m.getBoundingInfo().boundingBox; maxY = Math.max(maxY, bb.maximumWorld.y); }
-  return { root, rig, meshes, json, setExpression, height: maxY, bones };
+  return { root, rig, meshes, json, setExpression, height: maxY, bones, nodeOf: (i) => nodeByIndex.get(i) };
 }
