@@ -412,7 +412,10 @@ export class InteriorSystem {
       L.sun.specular = L.sun.diffuse;
       // Her toon bands take the shop light too (as Graphics derives them from its rig).
       ToonPlugin.sun.copyFrom(L.sun.diffuse).scaleInPlace(L.sun.intensity / Math.PI);
-      ToonPlugin.ambient.copyFrom(L.hemi.diffuse).addInPlace(L.hemi.groundColor).scaleInPlace(0.5 * L.hemi.intensity / Math.PI);
+      // The toon bands don't sample the room photo (the bounce light the dimmer
+      // sky fill leaves to it), so her fill stays at the shop's full value:
+      // with the dimmed one her hair went near-black inside.
+      ToonPlugin.ambient.copyFrom(L.hemi.diffuse).addInPlace(L.hemi.groundColor).scaleInPlace(0.5 * 1.5 / Math.PI);
       // No photo yet: no reflections (the sky's would light the room orange).
       if (env) this.gfx.setEnvironment(env, this._indoorMeshes(room));
       scene.environmentIntensity = env ? 0.85 : 0;

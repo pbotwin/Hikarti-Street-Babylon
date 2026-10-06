@@ -78,6 +78,7 @@ export class Graphics {
     // Toon-shaded characters take the same light, Lambert-scaled as three
     // lit the original's MToon: the warm low sun and the average sky fill.
     ToonPlugin.sun.copyFrom(this.sun.diffuse).scaleInPlace(this.sun.intensity / Math.PI);
+    ToonPlugin.sunDir = this.sunDir;
     ToonPlugin.ambient.copyFrom(this.hemi.diffuse).addInPlace(this.hemi.groundColor).scaleInPlace(0.5 * this.hemi.intensity / Math.PI);
 
     // Image-based lighting from the sky (captured once).

@@ -10,7 +10,7 @@ import { SpringBones } from './SpringBones.js';
 export class Character {
   static async load(scene, url) {
     const [vrm, parts] = await Promise.all([
-      loadVrm(scene, url),
+      loadVrm(scene, url, { shadeTones: SHADE_TONES }),
       // Outfit pieces modelled in Blender from kpd/ch.png (optional).
       SceneLoader.ImportMeshAsync('', './models/props/', 'heroine_parts.glb', scene).catch(() => null),
     ]);
@@ -209,6 +209,9 @@ export class Character {
   }
 }
 
+// The sample's shade colours are near-white (flat-looking): like the original,
+// her hair, skin and clothes get proper anime shadow tones.
+const SHADE_TONES = [[/HAIR/, '#9a86a8'], [/Body_00_SKIN/, '#d6909a'], [/CLOTH/, '#8c90bd']];
 // Share of her horizontal motion the hair space follows on foot (see update).
 const HAIR_CARRY = 0.85;
 const ONE = Vector3.One();

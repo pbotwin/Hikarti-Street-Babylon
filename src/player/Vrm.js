@@ -20,7 +20,8 @@ class ToonPlugin extends MaterialPluginBase {
   constructor(material) {
     super(material, 'Toon', 300, { TOON: false });
     this.shade = new Color3(0.8, 0.7, 0.75);
-    this.params = [1.35, 0.18, 0.62, 0.5];   // band centre, band softness, direct gain, ambient gain
+    // MToon shading shift and toony (from the model), direct and ambient gain.
+    this.params = [0, 0.9, 0.62, 0.5];
     this.enabled = false;
   }
   get isEnabled() { return this.enabled; }
@@ -29,8 +30,11 @@ class ToonPlugin extends MaterialPluginBase {
   getClassName() { return 'ToonPlugin'; }
   getUniforms() {
     return {
-      ubo: [{ name: 'toonShade', size: 3, type: 'vec3' }, { name: 'toonParams', size: 4, type: 'vec4' }, { name: 'toonSun', size: 3, type: 'vec3' }, { name: 'toonAmb', size: 3, type: 'vec3' }],
-      fragment: '#ifdef TOON\nuniform vec3 toonShade;\nuniform vec4 toonParams;\nuniform vec3 toonSun;\nuniform vec3 toonAmb;\n#endif',
+      ubo: [
+        { name: 'toonShade', size: 3, type: 'vec3' }, { name: 'toonParams', size: 4, type: 'vec4' },
+        { name: 'toonSun', size: 3, type: 'vec3' }, { name: 'toonAmb', size: 3, type: 'vec3' }, { name: 'toonSunDir', size: 3, type: 'vec3' },
+      ],
+      fragment: '#ifdef TOON\nuniform vec3 toonShade;\nuniform vec4 toonParams;\nuniform vec3 toonSun;\nuniform vec3 toonAmb;\nuniform vec3 toonSunDir;\n#endif',
     };
   }
   bindForSubMesh(ubo) {
@@ -39,19 +43,21 @@ class ToonPlugin extends MaterialPluginBase {
     ubo.updateFloat4('toonParams', this.params[0], this.params[1], this.params[2], this.params[3]);
     ubo.updateColor3('toonSun', ToonPlugin.sun);
     ubo.updateColor3('toonAmb', ToonPlugin.ambient);
+    ubo.updateVector3('toonSunDir', ToonPlugin.sunDir);
   }
   getCustomCode(type) {
     if (type !== 'fragment') return null;
     return {
-      // Light → cel bands (like MToon): how bright the PBR result is
-      // relative to the bare albedo is the light received (sun, sky,
-      // shadows). Lit: albedo × sun colour; shade: albedo × MToon shade
-      // colour × sun colour; both plus the (equalized) sky ambient.
+      // MToon's cel band: the sun's angle (N·L) plus the shading shift,
+      // through the toony linear step, times the sun's shadow. Babylon only
+      // keeps the average shadow over the lights; the sun is the one light
+      // that casts, so its own is recovered from that. Lit: albedo × sun
+      // colour; shade: × the MToon shade colour; plus the sky ambient.
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: `
         #ifdef TOON
-          float tLum = dot(finalColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-          float tAlb = max(dot(surfaceAlbedo, vec3(0.2126, 0.7152, 0.0722)), 0.02);
-          float tK = smoothstep(toonParams.x - toonParams.y, toonParams.x + toonParams.y, tLum / tAlb);
+          float tShadow = numLights > 1.5 ? clamp(aggShadow * numLights - (numLights - 1.0), 0.0, 1.0) : aggShadow;
+          float tShading = dot(normalW, toonSunDir) + toonParams.x;
+          float tK = clamp((tShading + 1.0 - toonParams.y) / max(2.0 - 2.0 * toonParams.y, 1e-4), 0.0, 1.0) * tShadow;
           vec3 tDirect = toonSun * toonParams.z * mix(toonShade, vec3(1.0), tK);
           finalColor.rgb = surfaceAlbedo * (tDirect + toonAmb * toonParams.w) + finalColor.rgb * 0.05;
         #endif
@@ -59,9 +65,11 @@ class ToonPlugin extends MaterialPluginBase {
     };
   }
 }
-// Scene light colours for the toon bands (set by Graphics).
+// Scene light for the toon bands (set by Graphics): sun and sky colours, and
+// the direction toward the sun (Graphics' own vector, which the shops turn).
 ToonPlugin.sun = new Color3(1, 0.78, 0.6);
 ToonPlugin.ambient = new Color3(0.66, 0.6, 0.62);
+ToonPlugin.sunDir = new Vector3(0, 1, 0);
 export { ToonPlugin };
 RegisterMaterialPlugin('Toon', (material) => (material instanceof PBRMaterial ? new ToonPlugin(material) : null));
 
@@ -130,8 +138,10 @@ export class HumanoidRig {
 /**
  * Load a VRM: returns { root, rig, meshes, expressions, json, height }.
  * root faces +Z; move / turn root for the character.
+ * `shadeTones`: [[material name pattern, hex], …] shade colours that replace
+ * the model's own (with the original's crisp band for those materials).
  */
-export async function loadVrm(scene, file, { outline = true } = {}) {
+export async function loadVrm(scene, file, { outline = true, shadeTones = [] } = {}) {
   // Read the glTF JSON from the GLB ourselves (several models may load at
   // once, so a loader observer can't tell whose JSON it sees).
   const name = file.slice(file.lastIndexOf('/') + 1);
@@ -204,13 +214,26 @@ export async function loadVrm(scene, file, { outline = true } = {}) {
       mat.specularIntensity = 0;
       const toon = mat.pluginManager?.getPlugin('Toon');
       if (toon) {
-        let shade = [0.82, 0.72, 0.78];
-        if (mt?.shadeColorFactor) shade = mt.shadeColorFactor;
-        else if (vrm0props?.[gi]?.vectorProperties?._ShadeColor) shade = vrm0props[gi].vectorProperties._ShadeColor;
-        // The sample shade colours are near-white (flat-looking); like the
-        // original, give hair, skin and clothes proper anime shadow tones.
-        const tone = /HAIR/.test(mat.name) ? '#9a86a8' : /Body_00_SKIN/.test(mat.name) ? '#d6909a' : /CLOTH/.test(mat.name) ? '#8c90bd' : null;
-        toon.shade = tone ? Color3.FromHexString(tone).toLinearSpace() : new Color3(shade[0], shade[1], shade[2]);
+        // MToon shade colour: linear in VRM 1.0, sRGB in VRM 0.x.
+        const shade0 = vrm0props?.[gi]?.vectorProperties?._ShadeColor;
+        let shade = mt?.shadeColorFactor ? Color3.FromArray(mt.shadeColorFactor)
+          : shade0 ? new Color3(shade0[0], shade0[1], shade0[2]).toLinearSpace() : new Color3(0.82, 0.72, 0.78);
+        const tone = shadeTones.find(([re]) => re.test(mat.name))?.[1];
+        if (tone) shade = Color3.FromHexString(tone).toLinearSpace();
+        toon.shade = shade;
+        // Band position and sharpness: the model's MToon values (VRM 0.x
+        // converted as three-vrm does); hair, skin and clothes as the original
+        // set them (a crisp band just past the terminator).
+        const f0 = vrm0props?.[gi]?.floatProperties;
+        let shift = mt?.shadingShiftFactor ?? 0, toony = mt?.shadingToonyFactor ?? 0.9;
+        if (f0) {
+          const s0 = f0._ShadeShift ?? 0, t0 = f0._ShadeToony ?? 0.9;
+          toony = t0 + (1 - t0) * (0.5 + 0.5 * s0);
+          shift = -s0 - (1 - toony);
+        }
+        if (tone) { shift = 0.02; toony = 0.92; }
+        toon.params[0] = shift;
+        toon.params[1] = toony;
         toon.isEnabled = true;
       }
       if (mat.transparencyMode == null && json.materials[gi]?.alphaMode === 'MASK') mat.transparencyMode = 1;
