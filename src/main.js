@@ -1,5 +1,5 @@
 import { Engine, Scene, UniversalCamera, Vector3 } from '@babylonjs/core';
-import { Graphics, PRESETS, detectTier } from './core/Graphics.js';
+import { Graphics } from './core/Graphics.js';
 import { GraphicsSettings } from './core/GraphicsSettings.js';
 import { SaveSystem } from './core/SaveSystem.js';
 import { ShopSystem } from './gameplay/ShopSystem.js';
@@ -21,6 +21,7 @@ import { FpsMeter } from './ui/FpsMeter.js';
 import { AdaptivePerformance } from './core/AdaptivePerformance.js';
 import { AudioSystem } from './audio/AudioSystem.js';
 import { VehicleSystem } from './vehicles/VehicleSystem.js';
+import { VehicleAssets } from './vehicles/VehicleAssets.js';
 import { TyreFX } from './vehicles/TyreFX.js';
 import { CarLights } from './vehicles/CarLights.js';
 import { NPCSystem } from './npcs/NPCSystem.js';
@@ -59,10 +60,10 @@ async function boot() {
   const lighting = graphics;
   const world = new World(scene, graphics);
   const charPromise = Character.load(scene, './models/heroine.vrm');
+  // The drivable vehicles' Blender models (the original loads them in World.build).
+  const vehicleModels = VehicleAssets.load(scene);
   await world.build((p) => ui.setLoading(0.05 + p * 0.5, 'Preparing the street…'));
   const collision = world.collision;
-  const tier = PRESETS[params.get('gfx')] ? params.get('gfx') : detectTier(engine);
-  graphics.apply(tier);
   ui.setLoading(0.6, 'Loading heroine…');
   const character = await charPromise;
   graphics.addCasters(character.meshes);
@@ -75,6 +76,7 @@ async function boot() {
     (x, z, y) => collision.groundHeight(x, z, 0.3, y, 0));
   const effects = new Effects(scene, state, collision);
   const portal = new PortalSystem(scene, state, world.portalSpot);
+  await vehicleModels;
   const vehicles = new VehicleSystem({
     ctx: world._ctx, specs: world._ctx.vehicleSpecs, scene, collision, player, animation, character,
     input, cameraRig, state, ui, collectibles, graphics,
@@ -87,13 +89,13 @@ async function boot() {
   const settings = new GraphicsSettings({ gfx, lighting, npcs });
   // Frame-rate mode and quality governor (?noadapt turns both off, for tests).
   const adaptive = new AdaptivePerformance(gfx, { npcs, enabled: !params.has('noadapt') });
-  const missions = new SideMissionSystem({ scene, state, player, npcs, ui, input });
+  const missions = new SideMissionSystem({ scene, state, player, npcs, ui, input, graphics });
   const minimap = new Minimap(document.getElementById('ui'), { player, cameraRig, collectibles, portal, missions, npcs, world });
   const fps = new FpsMeter(document.getElementById('ui'), () => ({
-    calls: graphics.drawCalls?.() ?? 0, triangles: 0, width: engine.getRenderWidth(), height: engine.getRenderHeight(),
+    calls: graphics.drawCalls(), triangles: graphics.triangles(), width: engine.getRenderWidth(), height: engine.getRenderHeight(),
     dpr: 1 / engine.getHardwareScalingLevel(),
     preset: `${settings.preset.label}${settings.mode === 'auto' ? ' (auto)' : ''}`,
-    shadowSize: graphics.shadowSize?.() ?? 0, gpu: settings.gpu, adaptive: adaptive.describe(),
+    shadowSize: graphics.shadowSize(), gpu: settings.gpu, adaptive: adaptive.describe(),
   }));
   // Save game: Continue / New game, autosave, play stats.
   // Shops: storefronts, Hikari Plaza and Hikari Motors; coins buy treats, clothes, keys.
@@ -130,7 +132,7 @@ async function boot() {
   });
   state.on('phase', ({ phase }) => {
     input.setVisible(phase === Phase.PLAYING);
-    graphics.setFade?.(0);
+    graphics.setFade(0);
   });
   state.on('ui:start', () => {
     audio.start();
@@ -258,6 +260,12 @@ async function boot() {
     ui.update(dt, player, world);
     minimap.update(dt);
   }
+}
+
+// Offline / installable (production builds only).
+// (Not in the Android app: it ships its files and has no use for one.)
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.()) {
+  addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {}));
 }
 
 boot().catch((err) => {
