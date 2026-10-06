@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f63a8"/><stop offset="0.55" stop-color="#9a8fc8"/><stop offset="1" stop-color="#ffc58f"/>
+    </linearGradient>
+    <linearGradient id="gem" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#7fe3ff"/><stop offset="1" stop-color="#3a8fe0"/>
+    </linearGradient>
+    <radialGradient id="glow"><stop offset="0" stop-color="#bff6ff" stop-opacity="0.9"/><stop offset="1" stop-color="#bff6ff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)"/>
+  <rect x="40" y="300" width="90" height="212" fill="#2b2f55" opacity="0.55"/>
+  <rect x="140" y="250" width="70" height="262" fill="#2b2f55" opacity="0.45"/>
+  <rect x="330" y="270" width="80" height="242" fill="#2b2f55" opacity="0.45"/>
+  <rect x="415" y="320" width="60" height="192" fill="#2b2f55" opacity="0.55"/>
+  <circle cx="256" cy="240" r="170" fill="url(#glow)"/>
+  <path d="M256 92 L336 240 L256 388 L176 240 Z" fill="url(#gem)" stroke="#ffffff" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M256 92 L256 388 M176 240 L336 240" stroke="#ffffff" stroke-opacity="0.55" stroke-width="4"/>
+</svg>
