@@ -1,0 +1,77 @@
+import { DynamicTexture } from '@babylonjs/core';
+
+/**
+ * Printed packaging for the shop products: one 1024² atlas of 8 × 8 label
+ * designs (drinks, snacks, magazine covers, book jackets): a brand word,
+ * a logo, a "photo", small print and a barcode on a coloured ground. A
+ * product picks a cell (Products: aCell) so a shelf shows many different
+ * real-looking packs from one texture and one draw per shape.
+ */
+export const CELLS = 8;
+export const FONT = `'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', system-ui, sans-serif`;
+
+const GROUNDS = ['#f7f3ea', '#ffffff', '#e8463c', '#f2b52a', '#2f7fc1', '#3f9a5b', '#1e2a44', '#f08bb0',
+  '#7a4fb3', '#fbe7c8', '#d8ecf6', '#121212', '#ff7a2f', '#9ccf5a', '#c7b9ff', '#a63a2c'];
+const INKS = ['#1b1b1f', '#ffffff', '#d92b2b', '#1d4fa0', '#f7c52a', '#156b3a'];
+const WORDS = ['HIKARI', 'KUMO', 'SORA', 'MIZU', 'pocha', 'Fuwa', 'NAMI', 'Choco', 'YUZU', 'Matcha', 'Calpi', 'POKI', 'Ramune', 'Mochi',
+  'ネオ', 'さくら', 'おちゃ', 'みかん', 'うまい', 'ほっと', 'WALKER', 'GAZETTE', 'mode', 'TOKYO', 'Crisp', 'Melon', 'Zest', 'Umami'];
+
+let atlas = null;
+
+/** The shared label atlas texture (painted once; v up the canvas, like three's flipY). */
+export function labelAtlas(scene) {
+  if (atlas) return atlas;
+  const S = 1024, C = S / CELLS;
+  atlas = new DynamicTexture('labels', { width: S, height: S }, scene, true);
+  atlas.anisotropicFilteringLevel = 4;
+  const g = atlas.getContext();
+  let seed = 97;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  for (let j = 0; j < CELLS; j++) for (let i = 0; i < CELLS; i++) {
+    const x = i * C, y = j * C;
+    g.save();
+    g.beginPath(); g.rect(x, y, C, C); g.clip();
+    const ground = pick(GROUNDS);
+    g.fillStyle = ground; g.fillRect(x, y, C, C);
+    const dark = parseInt(ground.slice(1, 3), 16) + parseInt(ground.slice(3, 5), 16) + parseInt(ground.slice(5, 7), 16) < 330;
+    const ink = dark ? '#ffffff' : pick(INKS.filter((k) => k !== '#ffffff' && k !== ground));
+    // Accent band or diagonal swoosh.
+    g.fillStyle = pick(GROUNDS.filter((k) => k !== ground));
+    if (rnd() < 0.5) g.fillRect(x, y + C * (0.08 + rnd() * 0.5), C, C * (0.12 + rnd() * 0.12));
+    else { g.beginPath(); g.moveTo(x, y + C); g.lineTo(x + C, y + C * 0.45); g.lineTo(x + C, y + C * 0.7); g.lineTo(x, y + C * 1.25); g.fill(); }
+    // "Photo": a soft round product shot.
+    const px = x + C * (0.3 + rnd() * 0.4), py = y + C * (0.55 + rnd() * 0.2), pr = C * (0.14 + rnd() * 0.1);
+    const grd = g.createRadialGradient(px - pr * 0.3, py - pr * 0.3, pr * 0.1, px, py, pr);
+    const food = pick(['#f4d27a', '#c8553d', '#e9a0b4', '#7cb342', '#8a5a3c', '#f6f1e3', '#ffb347']);
+    grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.35, food); grd.addColorStop(1, 'rgba(0,0,0,0.35)');
+    g.fillStyle = grd; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
+    // Logo roundel.
+    g.fillStyle = pick(INKS); g.beginPath(); g.arc(x + C * 0.17, y + C * 0.16, C * 0.09, 0, Math.PI * 2); g.fill();
+    // Brand word.
+    const word = pick(WORDS);
+    g.fillStyle = ink; g.textAlign = 'center'; g.textBaseline = 'middle';
+    let size = C * 0.24;
+    g.font = `900 ${size}px ${FONT}`;
+    while (g.measureText(word).width > C * 0.86 && size > 10) { size -= 2; g.font = `900 ${size}px ${FONT}`; }
+    g.fillText(word, x + C / 2, y + C * (0.3 + rnd() * 0.08));
+    // Small print.
+    g.globalAlpha = 0.55;
+    for (let k = 0; k < 3; k++) g.fillRect(x + C * 0.12, y + C * (0.84 + k * 0.045), C * (0.3 + rnd() * 0.35), C * 0.018);
+    g.globalAlpha = 1;
+    // Barcode.
+    g.fillStyle = '#ffffff'; g.fillRect(x + C * 0.66, y + C * 0.82, C * 0.26, C * 0.13);
+    g.fillStyle = '#111111';
+    for (let b = x + C * 0.68; b < x + C * 0.9; b += 2 + Math.floor(rnd() * 3)) g.fillRect(b, y + C * 0.84, 1 + Math.floor(rnd() * 2), C * 0.09);
+    g.restore();
+  }
+  atlas.update();
+  return atlas;
+}
+
+/** A stable label cell (0..63) for a name (an item id, a shelf position). */
+export function labelFor(name) {
+  let h = 2166136261;
+  for (const ch of String(name)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return (h >>> 0) % (CELLS * CELLS);
+}
