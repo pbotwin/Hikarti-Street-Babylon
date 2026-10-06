@@ -44,6 +44,7 @@ export async function loadCity(scene, onProgress) {
       if (file === 'city-cast.opt.glb') casters.push(m);
       const tags = file === 'city-parts.opt.glb' ? (m.metadata?.gltf?.extras || m.parent?.metadata?.gltf?.extras || {}) : {};
       if (m.thinInstanceCount > 0) m.thinInstanceRefreshBoundingInfo(false);
+      if (tags.instanceColor) m.thinInstanceSetBuffer('color', instanceColors(tags.instanceColor), 4, true);
       if (tags.shadow) { m.layerMask = SHADOW_ONLY_LAYER; parts.shadow.push(m); }
       if (tags.cast || tags.shadow) casters.push(m);
       if (tags.lod) lod.add(m, tags.lod);
@@ -59,6 +60,13 @@ export async function loadCity(scene, onProgress) {
   const collision = new CollisionWorld();
   for (const [x0, y0, z0, x1, y1, z1, cam, climb] of data.boxes) collision.addBox(x0, y0, z0, x1, y1, z1, { camera: !!cam, climb: !!climb });
   return { data, collision, meshes, casters, parts, lod };
+}
+
+/** Per-instance tints (linear RGB from the export) as Babylon's RGBA instance colours. */
+function instanceColors(rgb) {
+  const n = rgb.length / 3, out = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { out[i * 4] = rgb[i * 3]; out[i * 4 + 1] = rgb[i * 3 + 1]; out[i * 4 + 2] = rgb[i * 3 + 2]; out[i * 4 + 3] = 1; }
+  return out;
 }
 
 function tuneMaterial(mat) {

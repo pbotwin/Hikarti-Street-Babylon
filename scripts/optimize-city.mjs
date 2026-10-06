@@ -20,11 +20,18 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 for (const name of ['cast', 'nocast', 'parts']) {
   const input = `raw/city-${name}.glb`, output = `public/world/city-${name}.opt.glb`;
   const doc = await io.read(input);
+  // Cut-out and see-through textures stay lossless: lossy alpha noise turned
+  // leaf canopies into speckles once alpha-tested at 0.5.
+  for (const m of doc.getRoot().listMaterials()) {
+    const t = m.getAlphaMode() !== 'OPAQUE' && m.getBaseColorTexture();
+    if (t && !t.getName().startsWith('alpha:')) t.setName(`alpha:${t.getName()}`);
+  }
   const steps = [F.dedup(), F.prune({ keepExtras: true })];
   if (name !== 'parts') steps.push(F.instance({ min: 5 }), F.palette({ min: 5 }), F.flatten(), F.join());
   steps.push(
     F.weld(), F.resample(), F.prune({ keepExtras: true }), F.sparse(),
-    F.textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024] }),
+    F.textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], pattern: /^alpha:/, lossless: true }),
+    F.textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], pattern: /^(?!alpha:)/ }),
     F.reorder({ encoder: MeshoptEncoder }),
     F.quantize({ pattern: /^(?!POSITION$).*/ }),
   );

@@ -4,7 +4,8 @@
 //   raw/city-nocast.glb static meshes that don't
 //   raw/city-parts.glb  pieces the Babylon game treats individually, with
 //                       node extras: { cast, lod: { cell, level }, shadow,
-//                       wind: { strength, start } | grass, anim }
+//                       wind: { strength, start } | grass, anim,
+//                       instanceColor: [r, g, b, …] (linear) }
 import { chromium } from 'playwright-core';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
@@ -76,6 +77,9 @@ await page.evaluate(async () => {
     if (w) Object.assign(tags, w);
     const anim = animOf(o);
     if (anim) tags.anim = anim;
+    // Per-instance tints (grass blades, trees): glTF instancing carries only
+    // position / rotation / scale.
+    if (o.isInstancedMesh && o.instanceColor) tags.instanceColor = Array.from(o.instanceColor.array.subarray(0, o.count * 3), (v) => Math.round(v * 1e4) / 1e4);
     const part = Object.keys(tags).length > 0;
     tags.cast = !!o.castShadow;
     cls.set(o, part ? 'parts' : o.castShadow ? 'cast' : 'nocast');
