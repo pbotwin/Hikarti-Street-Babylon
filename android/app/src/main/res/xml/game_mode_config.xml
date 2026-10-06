@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Game Mode (Android 12+): the player's Battery / Performance choice
+     in the system game settings applies to this app. The game scales its own
+     resolution (AdaptivePerformance), so the system needn't downscale it. -->
+<game-mode-config xmlns:android="http://schemas.android.com/apk/res/android"
+    android:supportsBatteryGameMode="true"
+    android:supportsPerformanceGameMode="true"
+    android:allowGameDownscaling="false"
+    android:allowGameFpsOverride="false" />

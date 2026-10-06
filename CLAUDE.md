@@ -101,6 +101,14 @@ translated to Babylon.
 ## Checks before every commit
 
 ```bash
-npm run dev      # play it: ?autostart skips the title, ?gfx=low|medium|high|ultra
+npm test                                  # unit tests (side missions, save data)
+npm run dev                               # then, in another terminal:
+node scripts/exploration-check.mjs http://127.0.0.1:5180/?autostart
+npm run perf                              # frame time per preset, stutters, leaks
 npm run build
 ```
+
+`npm run perf` fails on frames over 50 ms during the district tour and on
+geometries / materials / textures / shader programs or JS heap that keep
+growing on an identical second lap. Play it too (`?autostart` skips the
+title, `?gfx=low|medium|high|ultra`).

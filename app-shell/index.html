@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Hikari Street</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1a1426; color: #f7f4ff; font-family: system-ui, sans-serif; }
+    body { display: grid; place-items: center; text-align: center; padding: 24px; box-sizing: border-box; }
+    h1 { font: 700 30px/1.1 Georgia, serif; margin: 0 0 10px; letter-spacing: 0.04em; }
+    p { margin: 0 0 22px; line-height: 1.55; color: rgba(247, 244, 255, 0.75); max-width: 300px; }
+    button { padding: 14px 30px; border: 0; border-radius: 999px; font: 700 16px/1 system-ui, sans-serif; color: #10162e;
+      background: linear-gradient(135deg, #bff6ff, #7fe3ff 45%, #6aa8ff); }
+  </style>
+</head>
+<body>
+  <!-- Shown by the Android app only when the live game (capacitor.config.json
+       server.url) can't load: no connection. -->
+  <main>
+    <h1>Hikari Street</h1>
+    <p>The game needs an internet connection to start. Check Wi-Fi or mobile data, then try again.</p>
+    <button onclick="location.href = 'https://m1kava.github.io/babylon-hikari-street/'">Try again</button>
+  </main>
+</body>
+</html>

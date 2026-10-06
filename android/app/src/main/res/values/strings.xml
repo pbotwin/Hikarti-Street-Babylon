@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hikari Street</string>
+    <string name="title_activity_main">Hikari Street</string>
+    <string name="package_name">com.hikaristreet.babylon</string>
+    <string name="custom_url_scheme">com.hikaristreet.babylon</string>
+</resources>

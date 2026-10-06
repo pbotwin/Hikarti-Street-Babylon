@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Hikari Street for Android</title>
+  <meta name="description" content="Download Hikari Street, an anime city to explore on foot, by bike and by car, for Android." />
+  <meta name="theme-color" content="#1a1426" />
+  <link rel="icon" href="../icon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #1a1426; --ink: #f7f4ff; --muted: rgba(247, 244, 255, 0.72);
+      --accent: #7fe3ff; --accent2: #ffd28a; --glass: rgba(26, 20, 44, 0.62);
+      --serif: 'Cormorant Garamond', Georgia, serif;
+      --font: 'M PLUS Rounded 1c', system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+    a { color: var(--accent); }
+    .hero {
+      position: relative; min-height: 100svh; display: flex; flex-direction: column; justify-content: flex-end;
+      background: url('./hero.jpg') center 30% / cover no-repeat;
+    }
+    .hero::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(to bottom, rgba(26, 20, 38, 0) 35%, rgba(26, 20, 38, 0.55) 62%, var(--bg) 96%);
+    }
+    .card {
+      position: relative; z-index: 1; margin: 0 auto; width: min(560px, 100%);
+      padding: 0 20px calc(28px + env(safe-area-inset-bottom));
+    }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .brand img { width: 64px; height: 64px; border-radius: 16px; box-shadow: 0 6px 24px rgba(127, 227, 255, 0.35); }
+    h1 { font: 700 40px/1 var(--serif); margin: 0; letter-spacing: 0.02em; }
+    .tag { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .lead { margin: 0 0 18px; font-size: 15.5px; line-height: 1.6; color: var(--muted); }
+    .download {
+      display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+      padding: 17px 20px; border-radius: 18px; border: 0; cursor: pointer; text-decoration: none;
+      font: 800 18px/1 var(--font); color: #10162e;
+      background: linear-gradient(135deg, #bff6ff, var(--accent) 45%, #6aa8ff);
+      box-shadow: 0 10px 30px rgba(127, 227, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    }
+    .download svg { width: 22px; height: 22px; }
+    .download[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
+    .meta { margin: 10px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
+    .alt { display: block; margin: 14px 0 0; text-align: center; font-size: 14.5px; }
+    .note { margin: 14px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--glass); font-size: 14px; line-height: 1.55; color: var(--muted); }
+    main { width: min(560px, 100%); margin: 0 auto; padding: 8px 20px calc(40px + env(safe-area-inset-bottom)); }
+    h2 { font: 700 26px/1.1 var(--serif); margin: 26px 0 12px; }
+    ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    ol li { display: flex; gap: 12px; align-items: flex-start; padding: 13px 14px; border-radius: 16px; background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.08); line-height: 1.5; font-size: 14.5px; }
+    ol li b { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgba(127, 227, 255, 0.18); color: var(--accent); font-size: 14px; }
+    ul.why { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.5; color: var(--muted); }
+    ul.why li::before { content: '◆'; color: var(--accent2); margin-right: 10px; font-size: 11px; }
+    footer { margin-top: 28px; font-size: 12.5px; color: rgba(247, 244, 255, 0.5); text-align: center; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <div class="card">
+      <div class="brand">
+        <img src="../icon-192.png" alt="" />
+        <div>
+          <h1>Hikari Street</h1>
+          <p class="tag">Anime city exploration · for Android</p>
+        </div>
+      </div>
+      <p class="lead">Walk, ride and drive through a sunset-lit Japanese neighbourhood: meet its residents, help with their favours and find the five energy fragments.</p>
+
+      <a id="download" class="download" href="./hikari-street.apk" download aria-disabled="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14" /></svg>
+        <span id="download-label">Download for Android</span>
+      </a>
+      <p id="meta" class="meta">Checking the latest version…</p>
+      <a class="alt" href="../">Play in your browser instead</a>
+      <p id="ios" class="note" hidden>The app is for Android. On iPhone and iPad, play in your browser: tap Share → <b>Add to Home Screen</b> and it opens full screen like an app.</p>
+      <p id="desktop" class="note" hidden>Open this page on your Android phone to install the app: <span id="url"></span></p>
+    </div>
+  </section>
+
+  <main>
+    <h2>How to install</h2>
+    <ol>
+      <li><b>1</b><span>Tap <strong>Download for Android</strong> and wait for the file to finish.</span></li>
+      <li><b>2</b><span>Open the downloaded file. If Android asks, allow your browser to <strong>install unknown apps</strong>, then tap <strong>Install</strong>.</span></li>
+      <li><b>3</b><span>Open <strong>Hikari Street</strong> from your apps. That's it: the app always opens the latest version of the game, so you never need to update it.</span></li>
+    </ol>
+
+    <h2>Why the app?</h2>
+    <ul class="why">
+      <li>Always up to date: every improvement reaches you the next time you open it.</li>
+      <li>Full screen, like any game, with the screen kept on while you play.</li>
+      <li>Your phone treats it as a game: Game Booster and Android's game modes apply.</li>
+      <li>Reads your phone's temperature and eases the graphics before it gets hot, so it stays smooth for longer.</li>
+    </ul>
+
+    <footer>Android 7.0 or newer · internet connection to start</footer>
+  </main>
+
+  <script>
+    // Latest build info, written by the deploy (version.json next to the APK).
+    const ua = navigator.userAgent;
+    const ios = /iphone|ipad|ipod/i.test(ua) || (navigator.maxTouchPoints > 1 && /mac/i.test(navigator.platform));
+    const android = /android/i.test(ua);
+    const button = document.getElementById('download');
+    const meta = document.getElementById('meta');
+    if (ios) document.getElementById('ios').hidden = false;
+    else if (!android) {
+      document.getElementById('desktop').hidden = false;
+      document.getElementById('url').textContent = location.href.replace(/[?#].*$/, '');
+    }
+    fetch('./version.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((v) => {
+        button.removeAttribute('aria-disabled');
+        const mb = Math.round(v.size / 1048576);
+        const date = new Date(v.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        meta.textContent = `Version ${v.version} · ${mb} MB · updated ${date}`;
+      })
+      .catch(() => {
+        document.getElementById('download-label').textContent = 'Android app coming soon';
+        meta.textContent = 'The first build is on its way. Meanwhile, play in your browser.';
+      });
+  </script>
+</body>
+</html>

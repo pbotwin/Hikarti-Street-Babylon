@@ -1,0 +1,12 @@
+{
+  "appId": "com.hikaristreet.babylon",
+  "appName": "Hikari Street",
+  "webDir": "app-shell",
+  "server": {
+    "url": "https://m1kava.github.io/babylon-hikari-street/",
+    "errorPath": "index.html"
+  },
+  "android": {
+    "backgroundColor": "#1a1426"
+  }
+}
