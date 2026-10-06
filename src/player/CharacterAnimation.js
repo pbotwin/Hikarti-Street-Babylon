@@ -64,8 +64,10 @@ class Pose {
   }
 }
 
-export class Animator {
-  constructor(vrm) {
+export class CharacterAnimation {
+  constructor(character) {
+    this.character = character;
+    const vrm = character.vrm;
     this.vrm = vrm;
     this.rig = vrm.rig;
     this.idle = new Pose(); this.loco = new Pose(); this.runPose = new Pose(); this.air = new Pose(); this.out = new Pose();

@@ -25,9 +25,9 @@ const RADIUS = 0.28;
 const HEIGHT = 1.55;
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export class Player {
-  constructor({ vrm, animator, input, collision, cameraRig, state }) {
-    Object.assign(this, { vrm, anim: animator, input, collision, cameraRig, state });
+export class PlayerController {
+  constructor({ character, animation, input, collision, cameraRig, state }) {
+    Object.assign(this, { character, anim: animation, input, collision, cameraRig, state });
     this.position = new Vector3();
     this.velocity = new Vector3();
     this.yaw = 0;
@@ -168,7 +168,7 @@ export class Player {
   }
 
   _sync() {
-    const root = this.vrm.root;
+    const root = this.character.root;
     root.position.set(this.position.x, this.visualY, this.position.z);
     root.rotation.y = this.yaw;
   }

@@ -15,9 +15,9 @@ const DIST = 4.1;
 const PIVOT_HEIGHT = 1.42;
 const COLLISION_MARGIN = 0.28;
 
-export class CameraRig {
-  constructor(scene, input, collision) {
-    this.camera = new UniversalCamera('cam', new Vector3(0, 2, -5), scene);
+export class CameraController {
+  constructor(camera, input, collision) {
+    this.camera = camera;
     this.camera.minZ = 0.15;
     this.camera.maxZ = 1200;
     this.camera.inputs.clear();          // we drive it ourselves

@@ -123,13 +123,13 @@ export class HumanoidRig {
  * root faces +Z; move / turn root for the character.
  */
 export async function loadVrm(scene, file, { outline = true } = {}) {
-  let json = null;
-  const obs = SceneLoader.OnPluginActivatedObservable.add((plugin) => {
-    if (plugin.name === 'gltf') plugin.onParsedObservable.addOnce((d) => { json = d.json; });
-  });
-  const dir = file.slice(0, file.lastIndexOf('/') + 1), name = file.slice(dir.length);
-  const res = await SceneLoader.ImportMeshAsync('', dir, name, scene, undefined, '.glb');
-  SceneLoader.OnPluginActivatedObservable.remove(obs);
+  // Read the glTF JSON from the GLB ourselves (several models may load at
+  // once, so a loader observer can't tell whose JSON it sees).
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  const bytes = new Uint8Array(await (await fetch(file)).arrayBuffer());
+  const dv = new DataView(bytes.buffer);
+  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + dv.getUint32(12, true))));
+  const res = await SceneLoader.ImportMeshAsync('', '', bytes, scene, undefined, '.glb');
   const vrm1 = !!json.extensions?.VRMC_vrm;
   const gltfRoot = res.meshes[0];            // loader's __root__
 
