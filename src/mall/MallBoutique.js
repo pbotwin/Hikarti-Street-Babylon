@@ -113,7 +113,7 @@ function till(site, cast, still, M, signs) {
   const T = TILL, mid = (T.z0 + T.z1) / 2;
   cast.box(M.gloss, C.snow, T.x0, 0.08, T.z0, T.x1, T.h - 0.04, T.z1);
   cast.box(M.satin, C.dark, T.x0 + 0.04, 0, T.z0 + 0.04, T.x1 - 0.04, 0.08, T.z1 - 0.04);
-  still.panel(M.satin, C.pink, T.x1 + 0.002, mid, [1, 0], T.z1 - T.z0, 0.2, T.h - 0.12);
+  still.panel(M.satin, C.pink, T.x1 + 0.006, mid, [1, 0], T.z1 - T.z0, 0.2, T.h - 0.12);
   cast.box(M.satin, C.oak, T.x0 - 0.04, T.h - 0.04, T.z0 - 0.04, T.x1 + 0.04, T.h, T.z1 + 0.04);
   const rz = 17.4, rx = (T.x0 + T.x1) / 2;
   cast.box(M.gloss, C.dark, rx - 0.2, T.h, rz - 0.18, rx + 0.12, T.h + 0.08, rz + 0.18);

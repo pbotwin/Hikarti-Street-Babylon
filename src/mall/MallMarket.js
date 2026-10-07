@@ -120,13 +120,14 @@ function fixture({ site, cast, still, M, doors }, f, kind, aisle, levels, u0, u1
     f.box(cast, M.gloss, C.snow, u0, 0, 0.06, u1, deck, D - 0.05);                    // base
     f.box(cast, M.satin, C.dark, u0, 0, 0, u1, deck, 0.06);                            // grille
     f.box(cast, M.metal, C.steel, u0, deck, 0.1, u1, levels[0], D - 0.05);             // deck
-    f.panel(still, M.glow, CABINET_LIGHT, u0, u1, D - 0.051, deck, H - 0.25);
+    // Lit back a centimetre off the shell: at 1 mm it z-fought with it from a few metres away.
+    f.panel(still, M.glow, CABINET_LIGHT, u0, u1, D - 0.06, deck, H - 0.25);
     for (const y of levels.slice(1)) {
       f.box(cast, M.metal, C.steel, u0, y - 0.02, 0.12, u1, y, D - 0.06);
       strip(y, 0.12);
     }
     f.box(cast, M.gloss, C.snow, u0, H - 0.22, 0, u1, H, D - 0.05);                   // canopy / header
-    f.panel(still, M.satin, tint[aisle], u0, u1, -0.002, H - 0.18, H - 0.05);
+    f.panel(still, M.satin, tint[aisle], u0, u1, -0.006, H - 0.18, H - 0.05);
     f.box(still, M.glow, C.cold, u0, H - 0.235, 0.04, u1, H - 0.22, 0.12);             // light under the canopy
     for (const u of [u0, u1]) f.box(cast, M.gloss, C.snow, u - 0.03, 0, 0, u + 0.03, H, D);
     if (cooler) {
@@ -195,7 +196,7 @@ function checkout({ site, cast, still, M }, cx, i, signs) {
   for (const x of [cx - 0.32, cx + 0.28]) cast.box(M.metal, C.steel, x, K.h, K.beltTo, x + 0.04, K.h + 0.04, K.beltFrom);
   cast.box(M.gloss, C.grey, cx + 0.28, K.h + 0.04, K.beltFrom - 0.6, cx + 0.32, K.h + 0.08, K.beltFrom - 0.2);
   // Scanner window, register (cashier's screen), customer display and card reader.
-  still.flat(M.gloss, C.black, cx - 0.2, K.register + 0.25, cx + 0.2, K.register + 0.5, K.h + 0.003);
+  still.flat(M.gloss, C.black, cx - 0.2, K.register + 0.25, cx + 0.2, K.register + 0.5, K.h + 0.006);
   cast.box(M.gloss, C.dark, cx - 0.36, K.h, K.register - 0.18, cx - 0.06, K.h + 0.1, K.register + 0.18);
   cast.box(M.gloss, C.dark, cx - 0.32, K.h + 0.1, K.register - 0.02, cx - 0.28, K.h + 0.38, K.register + 0.02);
   cast.box(M.gloss, C.dark, cx - 0.36, K.h + 0.36, K.register - 0.2, cx - 0.32, K.h + 0.62, K.register + 0.2);

@@ -18,6 +18,8 @@ import { CelLighting } from '../world/CelLighting.js';
  * (MallCars), the hedge round the site, the exit road out and the pylon
  * sign by it, and the fields beyond. Trees are thin instances of one model.
  */
+// Paint over the asphalt (and the accessible bays 4 mm under it): thinner
+// layers z-fought across the lot from the far rows.
 const PAINT_Y = 0.008;
 const FAR = 420;               // the fields reach the fog
 const _q = new Quaternion();
@@ -40,7 +42,7 @@ export async function buildLot(site, mats, signs, vehicles) {
     for (const s of [-1, 1]) {
       const x0 = s > 0 ? END_ISLAND.x0 : -END_ISLAND.x1, x1 = s > 0 ? END_ISLAND.x1 : -END_ISLAND.x0;
       cast.box(M.matte, C.concrete, x0, 0, z0, x1, KERB_H, z1);
-      still.flat(M.grass, C.white, x0 + 0.15, z0 + 0.15, x1 - 0.15, z1 - 0.15, KERB_H + 0.003);
+      still.flat(M.grass, C.white, x0 + 0.15, z0 + 0.15, x1 - 0.15, z1 - 0.15, KERB_H + 0.008);
       for (const z of [z0 + 1.6, z1 - 1.6]) cast.sphere(M.matte, C.leaf, (x0 + x1) / 2, KERB_H + 0.35, z, 0.7, 0.6, 8);
       site.collide(x0, z0, x1, z1, 0, KERB_H, { camera: false });
     }
@@ -111,7 +113,7 @@ function paint(b, M, signs) {
     for (const x of [-30, 30]) arrow(b, signs, x, zc, y);
   }
   for (const a of ACCESSIBLE_BAYS) {
-    b.flat(M.matte, C.blue, a.x - BAY.w / 2 + 0.1, a.z - BAY.d / 2 + 0.2, a.x + BAY.w / 2 - 0.1, a.z + BAY.d / 2 - 0.2, y - 0.002);
+    b.flat(M.matte, C.blue, a.x - BAY.w / 2 + 0.1, a.z - BAY.d / 2 + 0.2, a.x + BAY.w / 2 - 0.1, a.z + BAY.d / 2 - 0.2, y - 0.004);
     b.face(signs.material, C.white, [a.x - 0.6, y, a.z - 0.6], [0, 0, 1.2], [1.2, 0, 0], signs.rect('accessible'));
   }
   // Lane centre line out of the site and EXIT painted at the road's start.
