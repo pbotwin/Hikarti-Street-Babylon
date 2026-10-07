@@ -18,7 +18,8 @@ import { eulerToRef } from '../NPCModels.js';
  * NPCModels.animateResident (thigh +X forward, shin −X bends the knee).
  *
  * Babylon computes world matrices on demand, so every world-space read first
- * brings the chain from the resident's root down to that bone up to date.
+ * brings the chain from the resident's root down to that bone up to date;
+ * only the links that changed since (or under a changed parent) are redone.
  */
 
 const _q = new Quaternion(), _pq = new Quaternion(), _cq = new Quaternion(), _dq = new Quaternion(), _aq = new Quaternion(), _iq = new Quaternion();
@@ -27,19 +28,30 @@ const _rootQ = new Quaternion(), _rootInv = new Quaternion();
 const AX = { pitch: new Vector3(1, 0, 0), yaw: new Vector3(0, 1, 0), roll: new Vector3(0, 0, 1) };
 
 let R = null; // resident being posed
+// Pose-pass clock: a node's world matrix is current while it was computed
+// after its parent's and after its own last change (_poseT / _poseChanged).
+// Recomputing the whole chain on every read was most of the residents' cost.
+let clock = 0;
 
-/** Recompute world matrices from the resident root down to `n`. */
+/** Bring `n`'s world matrix up to date (and its chain up to the resident root). */
 function sync(n) {
-  if (n !== R.root) sync(n.parent);
-  n.computeWorldMatrix(true);
+  const parentT = n === R.root ? 0 : syncTime(n.parent);
+  if (!(n._poseT > parentT && n._poseT > (n._poseChanged || 0))) {
+    n.computeWorldMatrix(true);
+    n._poseT = ++clock;
+  }
   return n;
 }
 
+function syncTime(n) { return sync(n)._poseT; }
+
 function begin(r) {
   R = r;
-  // The resident's own parents moved this frame: bring them up to date too.
+  // The resident's own parents moved this frame: bring them up to date too
+  // (and so invalidate every bone computed in an earlier pass).
   const up = (n) => { if (n.parent) up(n.parent); n.computeWorldMatrix(true); };
   up(r.root);
+  r.root._poseT = ++clock;
   _rootQ.copyFrom(r.root.absoluteRotationQuaternion);
   Quaternion.InverseToRef(_rootQ, _rootInv);
 }
@@ -47,6 +59,7 @@ function begin(r) {
 function blendTo(n, target, k) {
   if (k >= 1) n.rotationQuaternion.copyFrom(target);
   else Quaternion.SlerpToRef(n.rotationQuaternion, target, k, n.rotationQuaternion);
+  n._poseChanged = ++clock;
 }
 
 /** Leg-style Euler on top of the rest pose. */

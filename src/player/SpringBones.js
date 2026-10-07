@@ -8,9 +8,15 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core';
  *
  * Tails live in a "center" space (a matrix the owner moves, see Character):
  * motion of that space is not felt by the springs.
+ *
+ * Along a chain each joint's world transform is carried down from the joint
+ * above (characters are unscaled), not recomputed by the scene graph:
+ * Babylon's general world-matrix update, twice per joint, was most of the
+ * cost.
  */
 const _v1 = new Vector3(), _v2 = new Vector3(), _v3 = new Vector3(), _v4 = new Vector3(), _v5 = new Vector3();
 const _q1 = new Quaternion(), _q2 = new Quaternion(), _q3 = new Quaternion();
+const _m = new Matrix();
 
 export class SpringBones {
   /**
@@ -45,9 +51,12 @@ export class SpringBones {
           restRot: (node.rotationQuaternion || Quaternion.FromEulerVector(node.rotation)).clone(),
           axis: child.position.clone().normalize(),
           length: 0, tail: new Vector3(), prevTail: new Vector3(),
+          // The joint above in the same chain, and this joint's world transform.
+          up: null, world: new Matrix(), worldQ: new Quaternion(),
         });
       }
     }
+    for (const j of this.joints) j.up = this.joints.find((o) => o.node === j.node.parent) || null;
     for (const j of this.joints) if (!j.node.rotationQuaternion) j.node.rotationQuaternion = j.restRot.clone();
   }
 
@@ -86,14 +95,15 @@ export class SpringBones {
     }
     for (let k = 0; k < js.length; k++) {
       const j = js[k], st = j.settings, node = j.node;
-      // Rest pose for this frame, under the animated parent.
-      node.rotationQuaternion.copyFrom(j.restRot);
-      node.computeWorldMatrix(true);
-      const head = _v1.copyFrom(node.getAbsolutePosition());
-      // Rest world rotation (parent world × rest local), read from the world
-      // matrix just computed: characters are unscaled, and the getter
-      // (absoluteRotationQuaternion) decomposed with temporaries per joint.
-      Quaternion.FromRotationMatrixToRef(node.getWorldMatrix(), _q1);
+      // The parent's world transform: the joint above, or the animated body.
+      let parentWorld, parentQ;
+      if (j.up) { parentWorld = j.up.world; parentQ = j.up.worldQ; } else {
+        parentWorld = node.parent.computeWorldMatrix(true);
+        parentQ = Quaternion.FromRotationMatrixToRef(parentWorld, j.worldQ);
+      }
+      const head = Vector3.TransformCoordinatesToRef(node.position, parentWorld, _v1);
+      // Rest world rotation: parent world × rest local.
+      parentQ.multiplyToRef(j.restRot, _q1);
 
       // Verlet in center space: inertia (minus drag), stiffness toward the
       // rest direction, gravity.
@@ -115,7 +125,9 @@ export class SpringBones {
       next.subtractToRef(head, _v5).rotateByQuaternionToRef(_q2, _v5).normalize();
       Quaternion.FromUnitVectorsToRef(j.axis, _v5, _q3);
       j.restRot.multiplyToRef(_q3, node.rotationQuaternion);
-      node.computeWorldMatrix(true);
+      // This joint's world transform, for the one below it.
+      parentQ.multiplyToRef(node.rotationQuaternion, j.worldQ);
+      Matrix.ComposeToRef(node.scaling, node.rotationQuaternion, node.position, _m).multiplyToRef(parentWorld, j.world);
     }
   }
 
