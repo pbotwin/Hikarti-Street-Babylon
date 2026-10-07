@@ -11,9 +11,11 @@ import { writeTRS } from '../world/Instances.js';
  * Near the camera a body keeps its shape within ~4 mm (~12k triangles);
  * beyond NEAR m it is a ~2k-triangle silhouette with its lamps. The clear
  * lamp lenses are left out (they resist simplifying and show nothing).
- * Cars are re-sorted between the levels when the camera has moved a little.
+ * Cars are re-sorted between the levels when the camera has moved a little;
+ * a car turns detailed within NEAR and simple again only beyond FAR, so one
+ * near the line doesn't swap back and forth as the camera sways.
  */
-const NEAR = 22;
+const NEAR = 22, FAR = 26;
 const RESORT = 2;            // camera travel (m) before re-sorting
 // Simplification per level (relative error; lamps get 2.5× the body's) and the parts left out.
 const LEVELS = [
@@ -81,7 +83,9 @@ export class MallCars {
       const [near, far] = model.levels;
       let n = 0, f = 0;
       for (const c of model.cars) {
-        const lvl = (c.x - x) ** 2 + (c.z - z) ** 2 < NEAR * NEAR ? near : far;
+        const r = c.near ? FAR : NEAR;
+        c.near = (c.x - x) ** 2 + (c.z - z) ** 2 < r * r;
+        const lvl = c.near ? near : far;
         _q.set(0, Math.sin(c.yaw / 2), 0, Math.cos(c.yaw / 2));
         writeTRS(lvl.matrices, (lvl === near ? n++ : f++) * 16, c.x, 0, c.z, _q);
       }

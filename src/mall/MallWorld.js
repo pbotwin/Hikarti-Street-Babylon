@@ -17,17 +17,24 @@ import { IndoorLight } from '../core/IndoorLight.js';
  * Hikari Mall, the place (MALL.md "world"): builds the site from the plan
  * (MallPlan) behind the loading veil — lot, building, supermarket and
  * clothing store fixtures, collisions — and publishes `layout` for the
- * other modules. While a trip runs it moves the doors and switches the
- * lighting at the building's edge: the game's sunset outside, the store rig
+ * other modules. While a trip runs it moves the doors and fades the
+ * lighting inside the entrance: the game's sunset outside, the store rig
  * inside (IndoorLight, as in the walk-in shops) with a photo of the store,
  * taken once at load, as its reflections and bounce light.
  *
  * Anyone who should open the automatic doors (shoppers) is added to
  * `walkers` (objects with a world `position`).
  */
-const ORIGIN = { x: 2600, z: 2600 };
-// Hysteresis at the threshold (m): the light flips once per crossing, never back and forth in the doorway.
-const EDGE = 0.4;
+// The site's centre: just west of the sleeping city (its meshes end at
+// x ≈ -480, its colliders at -132), as near the world origin as that
+// allows. At (2600, 2600) the GPU's float32 vertex transforms lost ~0.25 mm
+// per coordinate, which the 0.2 m near plane turns into centimetres of depth
+// error at 30–45 m: signs, posters and screens 1–2 cm off their walls
+// flickered when the camera moved 1 mm (2,100 px in one view; none here).
+// Clear of the audio's park and garden zones too.
+const ORIGIN = { x: -650, z: -200 };
+// How far inside the building's edge (m) the store light fades in, and back out.
+const IN_AT = 2.5, OUT_AT = 0.8;
 
 export class MallWorld {
   constructor(ctx) {
@@ -35,6 +42,8 @@ export class MallWorld {
     this.walkers = [];
     this._people = [];
     this._inside = false;
+    // What draws now re-reads the environment when it is swapped: the mall, the trip's people and things, her.
+    this._drawn = () => this.ctx.scene.meshes.filter((mesh) => mesh.isEnabled());
   }
 
   async init() {
@@ -63,7 +72,10 @@ export class MallWorld {
     this.casters = [...casters, ...this.lot.casters];
     graphics.addCasters(this.casters);
 
-    this.indoor = new IndoorLight(graphics, this.ctx.character);
+    // The shops' rig at 80%: at full strength the mall's white walls,
+    // floors and ceiling read washed out (mean screen brightness 161–167 in
+    // the market and fashion store, against ~150 in the sunset lot).
+    this.indoor = new IndoorLight(graphics, this.ctx.character, { level: 0.8 });
     await this._capture();
   }
 
@@ -106,20 +118,26 @@ export class MallWorld {
     for (const w of this.walkers) people.push(w.position);
     this.doors.update(dt, people);
     this.lot.cars.update(this.ctx.camera.position, ORIGIN);
-    this._light(p);
+    this._light(p, dt);
   }
 
-  /** Store lighting while she is inside the building (switched only on crossing its edge). */
-  _light(p) {
+  /**
+   * Store lighting while she is inside the building, faded in and out
+   * (IndoorLight). It turns a few metres in, not at the doors: the low sun
+   * shines into the entrance portals, so they are still in daylight, and by
+   * then the camera behind her is inside too. The
+   * different marks in and out keep it from turning back and forth while
+   * she stands near one.
+   */
+  _light(p, dt) {
     const b = this.layout.building;
-    const m = this._inside ? -EDGE : EDGE;
-    const inside = p.x > b.x0 + m && p.x < b.x1 - m && p.z > b.z0 + m && p.z < b.z1 - m;
-    if (inside === this._inside) return;
-    this._inside = inside;
-    // What draws now re-reads the environment: the mall, the trip's people and things, her.
-    const drawn = this.ctx.scene.meshes.filter((mesh) => mesh.isEnabled());
-    if (inside) this.indoor.enter(this.probe.cubeTexture, drawn);
-    else this.indoor.leave(drawn);
+    const depth = Math.min(p.x - b.x0, b.x1 - p.x, p.z - b.z0, b.z1 - p.z);
+    const inside = depth > (this._inside ? OUT_AT : IN_AT);
+    if (inside !== this._inside) {
+      this._inside = inside;
+      this.indoor.fadeTo(inside, this.probe.cubeTexture, this._drawn);
+    }
+    this.indoor.update(dt);
   }
 
   prompt() { return null; }
