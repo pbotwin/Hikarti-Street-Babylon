@@ -599,6 +599,7 @@ kbd {
 .seat-up { background: rgba(255, 255, 255, 0.1) !important; }
 
 /* Shopping mode (title screen, right middle). */
+.title .mall-mode[hidden] { display: none; }
 .title .mall-mode {
   position: absolute; right: max(18px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%);
   display: flex; align-items: center; gap: 12px; padding: 14px 18px 14px 16px; z-index: 2;
