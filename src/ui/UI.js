@@ -133,6 +133,8 @@ export class UI {
 
     this.buildEl = root.querySelector('.build');
     state.on('phase', ({ phase }) => this._onPhase(phase));
+    // A shopping trip is not the story's start: no fragments greeting.
+    state.on('ui:mall', () => { this._trip = true; });
     state.on('fragment:collected', ({ count, total }) => this._onFragment(count, total));
     state.on('portal:activated', () => setTimeout(() => this.toast('Portal Activated', 'A gate has opened on the main street'), 900));
     state.on('game:reset', () => this._resetCounter());
@@ -176,7 +178,8 @@ export class UI {
     this.buildEl.classList.toggle('hidden', phase === Phase.PLAYING);
     this.titleScreen.classList.toggle('hidden', phase !== Phase.TITLE);
     this.hud.classList.toggle('hidden', phase !== Phase.PLAYING);
-    if (phase === Phase.PLAYING && !this.startTime) {
+    if (phase === Phase.TITLE) this._trip = false;
+    if (phase === Phase.PLAYING && !this.startTime && !this._trip) {
       this.startTime = performance.now();
       setTimeout(() => (this._resumed
         ? this.toast('Welcome back', 'Your progress has been loaded')
