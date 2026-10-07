@@ -103,10 +103,7 @@ export class UI {
       state.emit('ui:load');
     });
     // Shopping mode: a trip to Hikari Mall (MallMode), from the title screen.
-    // Shown with ?shopping until the mall itself is finished.
-    const mallButton = root.querySelector('.mall-mode');
-    mallButton.hidden = !new URLSearchParams(location.search).has('shopping');
-    mallButton.addEventListener('click', () => {
+    root.querySelector('.mall-mode').addEventListener('click', () => {
       this._fullscreen();
       state.emit('ui:mall');
     });
