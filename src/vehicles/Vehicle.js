@@ -76,8 +76,31 @@ export class Vehicle {
       this.kickstand = ks;
     }
     this.crank = model.rig?.crank || null;
+    // Opening boot lid (CarModel rig.boot), 0 shut .. 1 open.
+    this.boot = model.rig?.boot || null;
+    this.bootK = 0;
     this.paused = false;
     this.reset();
+  }
+
+  /** Take it out of the world: its nodes, meshes and collider (materials are the model's, shared). */
+  dispose() {
+    this.collision.removeDynamic(this.collider);
+    this.root.dispose(false, false);
+  }
+
+  /** Something on it moves (its boot lid): keep its matrices live for a while. */
+  wake() {
+    this.stillTime = 0;
+    this.pause(false);
+  }
+
+  /** Boot lid from shut (0) to fully open (1). */
+  setBoot(k) {
+    if (!this.boot) return;
+    this.bootK = k;
+    this.boot.node.rotation.x = k * this.boot.open;
+    this.wake();
   }
 
   reset() {
@@ -439,7 +462,7 @@ export class Vehicle {
   }
 }
 
-/** Saturating (tanh) lateral tyre force; `muK` = friction × the axle's grip share. */
+/** Saturating (tanh) lateral tyre force; `muK` = friction ï¿½ the axle's grip share. */
 function tyre(alpha, load, muK) {
   const cap = muK * load;
   return -cap * Math.tanh((7.5 * load * alpha) / Math.max(cap, 1));

@@ -104,7 +104,7 @@ async function boot() {
   const shops = new ShopSystem({ root: document.getElementById('ui'), state, player, vehicles, missions, world, ui, input, specs: world._ctx.vehicleSpecs, character });
   minimap.extraMarkers = () => shops.markers();
   // Walk-in shop interiors (built once the residents' models are in, below).
-  const interiors = new InteriorSystem({ scene, collision, state, player, animation, character, cameraRig, lighting, gfx, shops, ui, input, audio, minimap, vehicles, carLights, npcs, world });
+  const interiors = new InteriorSystem({ scene, collision, state, player, animation, character, cameraRig, gfx, shops, ui, input, audio, minimap, vehicles, carLights, npcs, world });
   shops.interiors = interiors;
   const saves = new SaveSystem({ state, player, cameraRig, collectibles, portal, missions, vehicles, world, collision, audio, ui, shops });
   const hudMenu = new HudMenu(document.getElementById('ui'), { state, collectibles, audio, minimap, missions, input, graphics: settings, adaptive, saves, shops });

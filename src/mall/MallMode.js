@@ -50,7 +50,7 @@ export class MallMode {
     await Promise.all(this.modules.slice(1).map((m) => m.init()));
     d.ui.setLoading(0.85, 'Opening the doors…');
     // Shaders and geometry finished on the GPU now, not on first sight.
-    await d.graphics.warmUp();
+    await d.graphics.warmUp(new Set(this._sleeping));
 
     const s = ctx.layout.spawn;
     d.player.spawn(s.x, s.z, s.yaw);

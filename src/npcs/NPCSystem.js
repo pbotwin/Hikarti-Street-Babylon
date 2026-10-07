@@ -167,6 +167,32 @@ export class NPCSystem {
 
   get(id) { return this.byId.get(id); }
 
+  /**
+   * Lend a resident's character to the mall while the city sleeps (the same
+   * people shop there): no second copy of the model, its shaders, shadows or
+   * memory. Returns the resident ({ id, name, spec, look, vrm, label }) with
+   * nothing in hand, or null (not loaded / already lent). The city leaves a
+   * lent resident alone until giveBack().
+   */
+  lend(id) {
+    const item = this.byId.get(id);
+    if (!item?.vrm || item.lent) return null;
+    item.lent = { hold: item.heldKind ?? null };
+    holdProp(item, null);
+    return item;
+  }
+
+  /** The character comes home: back under its own root, in hand what it had. */
+  giveBack(item) {
+    if (!item?.lent) return;
+    const r = item.vrm;
+    r.root.parent = item.root;
+    setMorph(r.mouth, 0);
+    item.mouthOpen = 0;
+    holdProp(item, item.lent.hold);
+    item.lent = null;
+  }
+
   /** Speak a line as this resident (their own voice, mouth moving). */
   speak(npc, text) {
     const item = this.byId.get(npc.id || npc);
@@ -336,6 +362,7 @@ export class NPCSystem {
     lc.player.x = p.x; lc.player.y = p.y || 0; lc.player.z = p.z;
     for (let index = 0; index < this.items.length; index++) {
       const item = this.items[index];
+      if (item.lent) continue;
       const { spec, position, root } = item;
       if (item.shown && this._dodge(item, dt, vehicles)) {
         root.rotation.y += wrap(item.facing - root.rotation.y) * (1 - Math.exp(-dt * 12));

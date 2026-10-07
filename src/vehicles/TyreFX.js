@@ -77,6 +77,7 @@ export class TyreFX {
     this.fadeT = 0;
     this.track = new Map();   // vehicle -> per-wheel last point
     this.lastSpeed = new Map();
+    state?.on('vehicle:removed', ({ vehicle }) => { this.track.delete(vehicle); this.lastSpeed.delete(vehicle); });
     this.out = { skid: 0 };
     // Emit options, reused (Particles reads them on the spot).
     this._smoke = { life: 0, size: 0, color: null, drag: 1.6, gravity: 0.25 };

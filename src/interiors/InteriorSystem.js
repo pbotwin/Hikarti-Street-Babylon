@@ -8,7 +8,7 @@ import { ROOM_H, TEMPLATE_OF, letter, loadRoom } from './InteriorKit.js';
 import { linear, lookFor, productMesh, SHAPE_W, torus } from './Products.js';
 import { createResident, animateResident, eulerToRef } from '../npcs/NPCModels.js';
 import { BASKET_HAND } from '../player/CharacterAnimation.js';
-import { ToonPlugin } from '../player/Vrm.js';
+import { IndoorLight } from '../core/IndoorLight.js';
 import { Storefronts } from './Storefronts.js';
 
 /**
@@ -64,8 +64,8 @@ const STALL_VENDORS = {
 };
 
 export class InteriorSystem {
-  constructor({ scene, collision, state, player, animation, character, cameraRig, lighting, gfx, shops, ui, input, audio, minimap, vehicles = null, carLights = null, npcs = null, world = null }) {
-    Object.assign(this, { scene, collision, state, player, animation, character, cameraRig, lighting, gfx, shops, ui, input, audio, minimap, vehicles, carLights, npcs, world });
+  constructor({ scene, collision, state, player, animation, character, cameraRig, gfx, shops, ui, input, audio, minimap, vehicles = null, carLights = null, npcs = null, world = null }) {
+    Object.assign(this, { scene, collision, state, player, animation, character, cameraRig, gfx, shops, ui, input, audio, minimap, vehicles, carLights, npcs, world });
     this.vendors = {};
     this.rooms = {};
     this.inside = null;       // { room, kind, spot, back: {x,z,yaw} }
@@ -78,6 +78,7 @@ export class InteriorSystem {
     this.heldBag = null;      // paid bag hanging from her right hand
     this.time = 0;
     this.ready = false;
+    this.indoor = new IndoorLight(gfx, character);
     this._buildDom();
     this._events();
   }
@@ -227,6 +228,7 @@ export class InteriorSystem {
       this._indoor(on, room);
     };
     const meshes = [...room.meshes, ...this._staffMeshes(room)];
+    const darkness = this.gfx.shadows.darkness;
     const done = this.fronts.capture(kind, () => {
       show(true);
       // The cascades follow the street camera: out here every surface would
@@ -234,7 +236,7 @@ export class InteriorSystem {
       this.gfx.shadows.darkness = 1;
       return meshes;
     }, () => {
-      this.gfx.shadows.darkness = this._light.darkness;
+      this.gfx.shadows.darkness = darkness;
       show(false);
     });
     if (!done) return;
@@ -386,56 +388,15 @@ export class InteriorSystem {
     }
   }
 
-  /**
-   * Shop lighting, restored on leaving: the ceiling panels as a near-vertical
-   * key light (shadows straight down under shelves and tables), the room's
-   * own photo as reflections and bounce light (once taken), and no ink
-   * outlines: the shop is meant to look like a real room.
-   */
+  /** Shop lighting (IndoorLight) for `room`, restored on leaving. */
   _indoor(on, room = null) {
-    const L = this.lighting, scene = this.scene;
     if (on) {
-      this._light = {
-        dir: L.sunDir.clone(), color: L.sun.diffuse, spec: L.sun.specular, i: L.sun.intensity, sky: L.hemi.diffuse, ground: L.hemi.groundColor, hi: L.hemi.intensity,
-        toonSun: ToonPlugin.sun.clone(), toonAmb: ToonPlugin.ambient.clone(),
-        rays: this.gfx.raysAllowed, env: scene.environmentTexture, envI: scene.environmentIntensity, darkness: this.gfx.shadows.darkness, room, ink: this.gfx.ink,
-        outlined: this.character.meshes.filter((m) => m.renderOutline),
-      };
-      L.sunDir.set(0.12, 0.97, 0.2).normalize();
-      // The original's shop rig, in linear colours like Graphics' sunset rig.
-      L.sun.diffuse = Color3.FromHexString('#fff4e8').toLinearSpace();
-      L.hemi.diffuse = Color3.FromHexString('#f6f7ff').toLinearSpace(); L.hemi.groundColor = Color3.FromHexString('#d9d1c4').toLinearSpace();
-      // Without a reflection map yet, the hemisphere light carries the fill.
-      const env = room?.env || null;
-      L.sun.intensity = env ? 1.9 : 2.2;
-      L.hemi.intensity = env ? 0.55 : 1.5;
-      L.sun.specular = L.sun.diffuse;
-      // Her toon bands take the shop light too (as Graphics derives them from its rig).
-      ToonPlugin.sun.copyFrom(L.sun.diffuse).scaleInPlace(L.sun.intensity / Math.PI);
-      // The toon bands don't sample the room photo (the bounce light the dimmer
-      // sky fill leaves to it), so her fill stays at the shop's full value:
-      // with the dimmed one her hair went near-black inside.
-      ToonPlugin.ambient.copyFrom(L.hemi.diffuse).addInPlace(L.hemi.groundColor).scaleInPlace(0.5 * 1.5 / Math.PI);
-      // No photo yet: no reflections (the sky's would light the room orange).
-      if (env) this.gfx.setEnvironment(env, this._indoorMeshes(room));
-      scene.environmentIntensity = env ? 0.85 : 0;
-      for (const m of this._light.outlined) m.renderOutline = false;
-      this.gfx.ink = 0;
-      this.gfx.raysAllowed = false;
-    } else if (this._light) {
-      const s = this._light;
-      L.sunDir.copyFrom(s.dir); L.sun.diffuse = s.color; L.sun.specular = s.spec; L.sun.intensity = s.i;
-      ToonPlugin.sun.copyFrom(s.toonSun); ToonPlugin.ambient.copyFrom(s.toonAmb);
-      L.hemi.diffuse = s.sky; L.hemi.groundColor = s.ground; L.hemi.intensity = s.hi;
-      this.gfx.setEnvironment(s.env, this._indoorMeshes(s.room)); scene.environmentIntensity = s.envI;
-      for (const m of s.outlined) m.renderOutline = true;
-      this.gfx.ink = s.ink;
-      this.gfx.raysAllowed = s.rays;
-      this._light = null;
+      this._litRoom = room;
+      this.indoor.enter(room?.env || null, this._indoorMeshes(room));
+    } else if (this.indoor.on) {
+      this.indoor.leave(this._indoorMeshes(this._litRoom));
+      this._litRoom = null;
     }
-    // The light shines along -sunDir, from far out along it (shadow frustum).
-    L.sunDir.scaleToRef(-1, L.sun.direction);
-    L.sunDir.scaleToRef(120, L.sun.position);
   }
 
   /** Put this shop's goods on the room's shelves (decor fills the rest). */

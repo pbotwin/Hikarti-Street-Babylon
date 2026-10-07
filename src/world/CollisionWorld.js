@@ -29,6 +29,13 @@ export class CollisionWorld {
     return d;
   }
 
+  /** Take a box made by addDynamic out of the world (its owner went away). */
+  removeDynamic(d) {
+    const i = this.dynamic.indexOf(d);
+    if (i >= 0) this.dynamic.splice(i, 1);
+    if (this.ignore === d) this.ignore = null;
+  }
+
   /** Dynamic boxes near (x, z), with cached cos/sin and local bounds. */
   _dyn(x, z, r) {
     const out = this._dynOut || (this._dynOut = []);
@@ -68,16 +75,36 @@ export class CollisionWorld {
    */
   addBox(minX, minY, minZ, maxX, maxY, maxZ, opts = {}) {
     const box = { minX, minY, minZ, maxX, maxY, maxZ, camera: opts.camera !== false, climb: !!opts.climb };
-    const id = this.boxes.length;
     this.boxes.push(box);
-    for (let gx = Math.floor(minX / CELL); gx <= Math.floor(maxX / CELL); gx++) {
-      for (let gz = Math.floor(minZ / CELL); gz <= Math.floor(maxZ / CELL); gz++) {
-        const k = gx + ',' + gz;
-        if (!this.grid.has(k)) this.grid.set(k, []);
-        this.grid.get(k).push(id);
-      }
-    }
+    this._cells(box, (k) => {
+      if (!this.grid.has(k)) this.grid.set(k, []);
+      this.grid.get(k).push(box);
+    });
     return box;
+  }
+
+  /**
+   * Take boxes out of the world again (scenery that is built and torn down
+   * at runtime, like the mall of a shopping trip).
+   */
+  removeBoxes(boxes) {
+    const gone = new Set(boxes);
+    this.boxes = this.boxes.filter((b) => !gone.has(b));
+    for (const box of gone) {
+      this._cells(box, (k) => {
+        const list = this.grid.get(k);
+        if (!list) return;
+        const rest = list.filter((b) => b !== box);
+        if (rest.length) this.grid.set(k, rest); else this.grid.delete(k);
+      });
+    }
+  }
+
+  /** Grid cell keys a box covers. */
+  _cells(box, fn) {
+    for (let gx = Math.floor(box.minX / CELL); gx <= Math.floor(box.maxX / CELL); gx++) {
+      for (let gz = Math.floor(box.minZ / CELL); gz <= Math.floor(box.maxZ / CELL); gz++) fn(gx + ',' + gz);
+    }
   }
 
   /** Box centred at (x, z) with footprint w×d, rotated by 0/90° only. */
@@ -90,12 +117,12 @@ export class CollisionWorld {
     this._seen.clear();
     for (let gx = Math.floor(minX / CELL); gx <= Math.floor(maxX / CELL); gx++) {
       for (let gz = Math.floor(minZ / CELL); gz <= Math.floor(maxZ / CELL); gz++) {
-        const ids = this.grid.get(gx + ',' + gz);
-        if (!ids) continue;
-        for (const id of ids) {
-          if (this._seen.has(id)) continue;
-          this._seen.add(id);
-          out.push(this.boxes[id]);
+        const cell = this.grid.get(gx + ',' + gz);
+        if (!cell) continue;
+        for (const box of cell) {
+          if (this._seen.has(box)) continue;
+          this._seen.add(box);
+          out.push(box);
         }
       }
     }

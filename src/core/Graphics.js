@@ -323,10 +323,11 @@ export class Graphics {
    * so whatever is first seen in play (a car's cabin, a far model, a shop)
    * stuttered.
    */
-  async warmUp() {
+  async warmUp(asleep = null) {
     const scene = this.scene, saved = [];
     for (const n of [...scene.transformNodes, ...scene.meshes]) {
-      if (n.isDisposed()) continue;
+      // Sleeping roots (the city during a shopping trip) keep their subtree off.
+      if (n.isDisposed() || asleep?.has(n)) continue;
       saved.push([n, n.isEnabled(false), n.isVisible, n.alwaysSelectAsActiveMesh]);
       n.setEnabled(true);
       if (n.getTotalVertices) { n.isVisible = true; n.alwaysSelectAsActiveMesh = true; }

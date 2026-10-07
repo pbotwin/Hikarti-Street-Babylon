@@ -267,6 +267,15 @@ export const POSES = {
   look(t, k) { look(-0.12 + Math.sin(t * 0.4) * 0.05, Math.sin(t * 0.35) * 0.6, k); },
   point(t, k) { arm('right', [0.35, 0.15, 0.95], [0.3, 0.15, 0.95], k); look(-0.1, 0.25, k); },
   carry(t, k) { arm('right', [0.22, -1, 0.05], [0.1, -1, 0.05], k); },
+  // Hands on world points (a cart's handle, a product on a shelf, a garment
+  // held up): opts { l, r: Vector3 | null, lean, pitch } (lean bends the
+  // spine forward, pitch tips the head down to look).
+  hands(t, k, seated, opts) {
+    if (opts.lean) bend('spine', opts.lean, 0, 0, k);
+    if (opts.l) reach('left', opts.l, k);
+    if (opts.r) reach('right', opts.r, k);
+    look(opts.pitch || 0, 0, k);
+  },
   // Riding: seated, hands forward on the bars; pedalling on a bicycle.
   ride(t, k, seated, opts) {
     const style = opts?.style;

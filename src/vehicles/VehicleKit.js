@@ -187,6 +187,57 @@ export function mergeMaterials(parent) {
   return mergePlain(parts, scene).map((q) => meshFromPart(q, parent, scene));
 }
 
+/**
+ * Move the triangles of `from`'s queued parts whose centre passes `inside(x,
+ * y, z)` (in from's frame) into parts queued for `to`, a pivot `offset` from
+ * from's origin (same orientation): a panel cut out of a body shell to hinge
+ * on its own (a car's boot lid when the model has no separate one).
+ */
+export function cutParts(from, to, offset, inside) {
+  const parts = pending.get(from);
+  if (!parts) return;
+  for (const q of parts) {
+    const keep = [], cut = [];
+    for (let i = 0; i < q.idx.length; i += 3) {
+      let cx = 0, cy = 0, cz = 0;
+      for (let k = 0; k < 3; k++) { const v = q.idx[i + k] * 3; cx += q.pos[v]; cy += q.pos[v + 1]; cz += q.pos[v + 2]; }
+      (inside(cx / 3, cy / 3, cz / 3) ? cut : keep).push(q.idx[i], q.idx[i + 1], q.idx[i + 2]);
+    }
+    if (!cut.length) continue;
+    const piece = subsetPart(q, cut);
+    for (let v = 0; v < piece.pos.length; v += 3) {
+      piece.pos[v] -= offset[0]; piece.pos[v + 1] -= offset[1]; piece.pos[v + 2] -= offset[2];
+    }
+    addPart(to, piece);
+    Object.assign(q, subsetPart(q, keep));
+  }
+  pending.set(from, parts.filter((q) => q.idx.length));
+}
+
+/** A part made of some of another part's triangles (only the vertices they use). */
+function subsetPart(q, tris) {
+  const remap = new Int32Array(q.pos.length / 3).fill(-1);
+  let count = 0;
+  const idx = new Uint32Array(tris.length);
+  for (let i = 0; i < tris.length; i++) {
+    const v = tris[i];
+    if (remap[v] < 0) remap[v] = count++;
+    idx[i] = remap[v];
+  }
+  const out = {
+    ...q, idx, pos: new Float32Array(count * 3), nrm: new Float32Array(count * 3),
+    col: q.col ? new Float32Array(count * 4) : null, rm: q.rm ? new Float32Array(count * 2) : null,
+  };
+  for (let v = 0; v < remap.length; v++) {
+    const o = remap[v];
+    if (o < 0) continue;
+    for (let k = 0; k < 3; k++) { out.pos[o * 3 + k] = q.pos[v * 3 + k]; out.nrm[o * 3 + k] = q.nrm[v * 3 + k]; }
+    if (out.col) for (let k = 0; k < 4; k++) out.col[o * 4 + k] = q.col[v * 4 + k];
+    if (out.rm) { out.rm[o * 2] = q.rm[v * 2]; out.rm[o * 2 + 1] = q.rm[v * 2 + 1]; }
+  }
+  return out;
+}
+
 /** Fresh world matrix of a node (and its ancestors): Babylon caches them per frame. */
 export function syncWorld(node) {
   if (node.parent) syncWorld(node.parent);

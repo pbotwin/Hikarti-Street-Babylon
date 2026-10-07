@@ -621,7 +621,7 @@ kbd {
 /* Shopping mode (MallMode): the trip's HUD, panels and receipt; the city's
    HUD (fragments, side missions, minimap) is hidden during a trip. */
 [data-mode="mall"] .hud, [data-mode="mall"] .mission-tracker, [data-mode="mall"] .minimap { display: none !important; }
-.mall-hud { position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; z-index: 3; }
+.mall-hud { position: absolute; top: max(14px, env(safe-area-inset-top)); left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; z-index: 3; }
 .mall-hud[hidden] { display: none; }
 .mall-wallet { display: flex; gap: 14px; align-items: center; padding: 8px 16px; border-radius: 999px; color: #fff; background: rgba(28, 20, 38, 0.62); backdrop-filter: blur(6px); font-size: 14px; letter-spacing: 0.03em; }
 .mall-wallet b { font-size: 15px; } .mall-wallet i { font-style: normal; color: #ffd98a; }

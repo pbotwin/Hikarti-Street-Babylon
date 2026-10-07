@@ -1,7 +1,5 @@
 import { Phase } from '../core/GameState.js';
 import { ITEMS, SHOPS, DEFAULT_OUTFIT, WEARABLE, REWARDS, canBuy } from './ShopData.js';
-import { Color3 } from '@babylonjs/core';
-import { retone } from '../npcs/NPCModels.js';
 
 /**
  * Shops: walk up to a storefront, counter or vending machine, press F (or
@@ -51,12 +49,8 @@ const STOREFRONTS = [
 const REACH = 1.9;          // m from the counter
 const RUN_BOOST = 1.25;     // run speed ×
 const JUMP_BOOST = 1.18;    // jump velocity × (≈1.9 m apex instead of 1.35)
-const PARTS = {
-  top: /^Tops_01_CLOTH/,
-  bottom: /^Bottoms_01_CLOTH/,
-  shoes: /^Shoes_01_CLOTH/,
-  hair: /_HAIR/,
-};
+// Outfit parts she wears garments on (the hair is only dyed).
+const GARMENT_PARTS = ['top', 'bottom', 'shoes'];
 
 export class ShopSystem {
   constructor({ root, state, player, vehicles, missions, world, ui, input = null, specs = [], character }) {
@@ -72,7 +66,6 @@ export class ShopSystem {
     // Showroom vehicles: VehicleSystem builds one vehicle per spec, in order.
     vehicles.vehicles.forEach((v, i) => { if (specs[i]?.showroom) v.showroom = specs[i].showroom; });
     this.reset();
-    this._originals = this._captureMaterials();
     this._buildDom();
     this._events();
   }
@@ -86,7 +79,7 @@ export class ShopSystem {
     this.boosts.run = this.boosts.jump = 0;
     this._applyBoosts();
     this._syncLocks();
-    if (this._originals) this._applyOutfit();
+    this._applyOutfit();
   }
 
   capture() {
@@ -272,49 +265,22 @@ export class ShopSystem {
     }
   }
 
-  /** Her outfit materials as loaded, to recolour from (and return to). */
-  _captureMaterials() {
-    const list = [];
-    for (const o of this.character.meshes) {
-      for (const m of o.material?.subMaterials || [o.material]) {
-        const part = m && Object.keys(PARTS).find((k) => PARTS[k].test(m.name || ''));
-        if (!part || list.some((e) => e.m === m)) continue;
-        const c = m.albedoColor, toon = m.pluginManager?.getPlugin('Toon');
-        // Plain-colour parts: only the light fabric is dyed; dark trims and
-        // prints sharing the material name keep their colour.
-        if (!m.albedoTexture && (c.r + c.g + c.b) / 3 < 0.5) continue;
-        list.push({ m, part, toon, color: c.clone(), shade: toon?.shade.clone(), map: m.albedoTexture });
-      }
-    }
-    return list;
-  }
-
-  /** Recolour her clothes / hair for the current outfit (textures re-toned off-thread). */
+  /**
+   * Dress her for the current outfit (plus any try-on): each part's garment
+   * (a city boutique item has none: her own tee / shorts / sneakers) in the
+   * item's colour, and her hair's dye. Re-toned textures are made
+   * off-thread; changes apply in order.
+   */
   _applyOutfit() {
     const outfit = { ...this.outfit, ...(this._preview || {}) };
-    this._outfitJob = this._outfitJob.then(async () => {
-      for (const e of this._originals) {
-        const hex = ITEMS[outfit[e.part]]?.color || null;
-        const { m, toon } = e;
-        if (!e.map) {
-          // Plain-colour material (her tee): set the lit and shade colours,
-          // the shade keeping its ratio to the lit colour.
-          if (hex) {
-            Color3.FromHexString(hex).toLinearSpaceToRef(m.albedoColor);
-            if (toon) toon.shade.set(
-              m.albedoColor.r * e.shade.r / Math.max(e.color.r, 0.05),
-              m.albedoColor.g * e.shade.g / Math.max(e.color.g, 0.05),
-              m.albedoColor.b * e.shade.b / Math.max(e.color.b, 0.05));
-          } else {
-            m.albedoColor.copyFrom(e.color);
-            toon?.shade.copyFrom(e.shade);
-          }
-          continue;
-        }
-        const opts = { srgb: true, whites: e.part === 'shoes' || e.part === 'top' };
-        m.albedoTexture = hex ? await retone(e.map, hex, opts) : e.map;
-      }
-    }).catch((err) => console.warn('outfit', err));
+    const c = this.character;
+    this._outfitJob = this._outfitJob.then(() => Promise.all([
+      ...GARMENT_PARTS.map((part) => {
+        const item = ITEMS[outfit[part]];
+        return c.setGarment(part, item?.garment || null, item?.color || null);
+      }),
+      c.setHairColor(ITEMS[outfit.hair]?.color || null),
+    ])).catch((err) => console.warn('outfit', err));
     return this._outfitJob;
   }
 

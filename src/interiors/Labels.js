@@ -75,3 +75,122 @@ export function labelFor(name) {
   for (const ch of String(name)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return (h >>> 0) % (CELLS * CELLS);
 }
+
+// ---------------------------------------------------------------- mall groceries
+/**
+ * Printed packaging for the mall's groceries (MallCatalog GROCERIES): one
+ * cell per product, in catalog order, with its real brand and name. A cell
+ * holds the pack's print (rows 0-88: the package colour, the brand, a band
+ * in the label colour with the name, a "photo", small print and a barcode)
+ * and below it the shelf-edge price tag (rows 88-128) the tags show.
+ * Round packs (cans, bottles, tubs, jars) wrap the print around: it is
+ * painted twice side by side so each half of the wrap shows a whole label.
+ * Made for a shopping trip and disposed with it (disposeGroceryAtlas).
+ */
+export const PRINT_V = 88 / 128;     // share of a cell above the price tag (uv v from the top)
+const ROUND = new Set(['can', 'bottle', 'bigBottle', 'tub', 'jar', 'roll']);
+let groceries = null;
+
+/** Readable ink on a ground colour. */
+const inkOn = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  return ((n >> 16) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11) > 150 ? '#1b1b1f' : '#ffffff';
+};
+
+/** Fit text into `w` px (shrinking the font from `size`); returns the size used. */
+function fitText(g, text, w, size, weight = 900) {
+  g.font = `${weight} ${size}px ${FONT}`;
+  while (g.measureText(text).width > w && size > 7) { size -= 1; g.font = `${weight} ${size}px ${FONT}`; }
+  return size;
+}
+
+/** Split a name into at most two lines that fit `w` px. */
+function twoLines(g, text, w) {
+  if (g.measureText(text).width <= w) return [text];
+  const words = text.split(' ');
+  for (let i = words.length - 1; i > 0; i--) {
+    const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+    if (g.measureText(a).width <= w) return [a, b];
+  }
+  return [text];
+}
+
+/** The pack print of one product into a w × h box at (x, y). */
+function paintPrint(g, p, x, y, w, h, seed) {
+  const { color, label } = p.look;
+  g.fillStyle = color; g.fillRect(x, y, w, h);
+  // Brand on the package colour, the name on a band of the label colour.
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = label;
+  let s = fitText(g, p.brand.toUpperCase(), w * 0.86, Math.round(h * 0.15), 900);
+  g.fillText(p.brand.toUpperCase(), x + w / 2, y + h * 0.14);
+  const bandY = y + h * 0.28, bandH = h * 0.36;
+  g.fillRect(x, bandY, w, bandH);
+  g.fillStyle = inkOn(label);
+  const name = p.name.replace(/ ×\d+$| \d+(\.\d+)? (L|kg)$/, '');
+  s = fitText(g, name, w * 0.9, Math.round(h * 0.17), 800);
+  let lines = twoLines(g, name, w * 0.9);
+  if (lines.length > 1) { s = Math.min(s, fitText(g, lines[0], w * 0.9, Math.round(h * 0.15), 800), fitText(g, lines[1], w * 0.9, Math.round(h * 0.15), 800)); g.font = `800 ${s}px ${FONT}`; }
+  lines.forEach((l, i) => g.fillText(l, x + w / 2, bandY + bandH / 2 + (i - (lines.length - 1) / 2) * s * 1.05));
+  // A soft round "photo" of the contents, the size (×10, 1.5 L) in a roundel.
+  const px = x + w * (0.3 + (seed % 3) * 0.2), py = y + h * 0.8, pr = h * 0.13;
+  const grd = g.createRadialGradient(px - pr * 0.3, py - pr * 0.3, pr * 0.1, px, py, pr);
+  grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.4, label); grd.addColorStop(1, 'rgba(0,0,0,0.3)');
+  g.fillStyle = grd; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
+  const amount = /×\d+$| \d+(\.\d+)? (L|kg)$/.exec(p.name)?.[0].trim();
+  if (amount) {
+    g.fillStyle = label; g.beginPath(); g.arc(x + w * 0.8, y + h * 0.8, h * 0.11, 0, Math.PI * 2); g.fill();
+    g.fillStyle = inkOn(label);
+    fitText(g, amount, h * 0.2, Math.round(h * 0.09), 900);
+    g.fillText(amount, x + w * 0.8, y + h * 0.8);
+  }
+  // Small print and a barcode.
+  g.fillStyle = inkOn(color); g.globalAlpha = 0.5;
+  for (let k = 0; k < 2; k++) g.fillRect(x + w * 0.08, y + h * (0.7 + k * 0.06), w * 0.3, h * 0.025);
+  g.globalAlpha = 1;
+}
+
+/** The shelf-edge tag: name and price on white, an accent strip in the label colour. */
+function paintTag(g, p, x, y, w, h) {
+  g.fillStyle = '#fbfaf5'; g.fillRect(x, y, w, h);
+  g.fillStyle = p.look.label === '#ffffff' || p.look.label === '#f4f1ea' ? p.look.color : p.look.label;
+  g.fillRect(x, y, w * 0.05, h);
+  g.textBaseline = 'middle';
+  g.textAlign = 'left'; g.fillStyle = '#26262b';
+  fitText(g, p.name, w * 0.56, Math.round(h * 0.3), 700);
+  const lines = twoLines(g, p.name, w * 0.56);
+  lines.forEach((l, i) => g.fillText(l, x + w * 0.09, y + h * (lines.length > 1 ? 0.32 + i * 0.36 : 0.5)));
+  g.textAlign = 'right'; g.fillStyle = '#c8202c';
+  fitText(g, String(p.price), w * 0.26, Math.round(h * 0.72), 900);
+  g.fillText(String(p.price), x + w * 0.9, y + h * 0.54);
+  // The coin mark (a small diamond, as the HUD's ◈).
+  const cx = x + w * 0.955, cy = y + h * 0.54, r = h * 0.14;
+  g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx + r * 0.7, cy); g.lineTo(cx, cy + r); g.lineTo(cx - r * 0.7, cy); g.closePath(); g.fill();
+}
+
+/** The groceries' label atlas (painted once per trip). `items` = MallCatalog GROCERIES. */
+export function groceryAtlas(scene, items) {
+  if (groceries) return groceries;
+  const S = 1024, C = S / CELLS, P = Math.round(C * PRINT_V);
+  groceries = new DynamicTexture('groceryLabels', { width: S, height: S }, scene, true);
+  groceries.anisotropicFilteringLevel = 4;
+  const g = groceries.getContext();
+  items.slice(0, CELLS * CELLS).forEach((p, n) => {
+    // Cell (i, j) is sampled from the bottom of the canvas up (flipped upload).
+    const i = n % CELLS, j = CELLS - 1 - Math.floor(n / CELLS);
+    const x = i * C, y = j * C;
+    g.save();
+    g.beginPath(); g.rect(x, y, C, C); g.clip();
+    if (ROUND.has(p.look.shape)) { paintPrint(g, p, x, y, C / 2, P, n); paintPrint(g, p, x + C / 2, y, C / 2, P, n); }
+    else paintPrint(g, p, x, y, C, P, n);
+    paintTag(g, p, x, y + P, C, C - P);
+    g.restore();
+  });
+  groceries.update();
+  return groceries;
+}
+
+export function disposeGroceryAtlas() {
+  groceries?.dispose();
+  groceries = null;
+}

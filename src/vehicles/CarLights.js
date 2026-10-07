@@ -36,6 +36,15 @@ export class CarLights {
     this.cars = new Map();
     this.t = 0;
     state?.on('vehicle:crash', ({ vehicle }) => { const c = this.cars.get(vehicle); if (c) c.hazard = 4; });
+    state?.on('vehicle:removed', ({ vehicle }) => this._forget(vehicle));
+  }
+
+  /** A vehicle went away (VehicleSystem.remove): its lamp clones go too. */
+  _forget(v) {
+    const car = this.cars.get(v);
+    if (!car) return;
+    for (const lamps of Object.values(car.parts)) for (const l of lamps) l.m.dispose();
+    this.cars.delete(v);
   }
 
   _setup(v) {

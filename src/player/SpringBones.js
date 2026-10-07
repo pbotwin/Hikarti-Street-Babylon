@@ -58,10 +58,30 @@ export class SpringBones {
     }
     for (const j of this.joints) j.up = this.joints.find((o) => o.node === j.node.parent) || null;
     for (const j of this.joints) if (!j.node.rotationQuaternion) j.node.rotationQuaternion = j.restRot.clone();
+    // Every joint, in chain order; `joints` are the ones simulated.
+    this._all = this.joints;
   }
 
   /** Remove joints (their bones stay at rest). */
-  deleteJoints(test) { this.joints = this.joints.filter((j) => !test(j)); }
+  deleteJoints(test) {
+    this._all = this._all.filter((j) => !test(j));
+    this.joints = this.joints.filter((j) => !test(j));
+  }
+
+  /**
+   * Stop simulating the joints `test` picks (e.g. a hidden shirt's hem:
+   * their bones rest), or start again from rest.
+   */
+  setPaused(test, paused) {
+    this.center.invertToRef(this._centerInv);
+    for (const j of this._all) {
+      if (!test(j) || !!j.paused === paused) continue;
+      j.paused = paused;
+      if (paused) j.node.rotationQuaternion.copyFrom(j.restRot);
+      else this._rest(j);
+    }
+    this.joints = this._all.filter((j) => !j.paused);
+  }
 
   /** Extra collider on `node`: a sphere at local `offset`, or a capsule to `tail`. */
   addCollider(node, radius, offset, tail = null) {
@@ -73,15 +93,17 @@ export class SpringBones {
   /** Put every tail at rest (after a teleport). */
   reset() {
     this.center.invertToRef(this._centerInv);
-    for (const j of this.joints) {
-      j.node.rotationQuaternion.copyFrom(j.restRot);
-      j.node.computeWorldMatrix(true);
-      j.child.computeWorldMatrix(true);
-      const head = j.node.getAbsolutePosition(), tail = j.child.getAbsolutePosition();
-      j.length = Vector3.Distance(head, tail);
-      Vector3.TransformCoordinatesToRef(tail, this._centerInv, j.tail);
-      j.prevTail.copyFrom(j.tail);
-    }
+    for (const j of this.joints) this._rest(j);
+  }
+
+  _rest(j) {
+    j.node.rotationQuaternion.copyFrom(j.restRot);
+    j.node.computeWorldMatrix(true);
+    j.child.computeWorldMatrix(true);
+    const head = j.node.getAbsolutePosition(), tail = j.child.getAbsolutePosition();
+    j.length = Vector3.Distance(head, tail);
+    Vector3.TransformCoordinatesToRef(tail, this._centerInv, j.tail);
+    j.prevTail.copyFrom(j.tail);
   }
 
   update(dt) {

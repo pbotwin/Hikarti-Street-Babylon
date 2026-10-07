@@ -2,3 +2,5 @@ node_modules
 dist
 raw
 shots
+__pycache__/
+*.pyc

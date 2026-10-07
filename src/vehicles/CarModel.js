@@ -1,9 +1,25 @@
 import { TransformNode, Matrix, Quaternion, Color3, Mesh, PBRMaterial } from '@babylonjs/core';
 import { VehicleAssets } from './VehicleAssets.js';
-import { addPart, bakePart, mergeMaterials, treeMatrix, boundsOf } from './VehicleKit.js';
+import { addPart, bakePart, cutParts, mergeMaterials, treeMatrix, boundsOf } from './VehicleKit.js';
 import { simplifyGeometry } from '../core/Simplify.js';
 
 const MARKER = /^(seat_|stand_|foot_|grip_|handle_)/;
+
+/**
+ * Boot lids for models whose GLB has no separate one, cut out of the body
+ * shell along the panel's shut lines (vehicle space, measured on the model):
+ * triangles behind `z` between heights y0 and y1 hinge at `hinge` and open
+ * by `open` radians about X. `handle` is the grip at the lid's lower edge and
+ * `floor` the load floor ({ y, z0, z1, hw }), both vehicle space, lid shut.
+ * car_kei_pink: a full-height tailgate (shut lines at z = -1.645 from the
+ * bumper top to the roof), tail lamps, plate and rear glass on it.
+ */
+const BOOT_LIDS = {
+  car_kei_pink: {
+    z: -1.652, y0: 0.345, y1: 1.8, hinge: [0, 1.8, -1.66], open: 1.62,
+    handle: [0, 0.52, -1.73], floor: { y: 0.29, z0: -1.55, z1: -0.95, hw: 0.5 },
+  },
+};
 
 /**
  * Builds a drivable car from a Blender car GLB (tools/blender/cars/*): the
@@ -14,9 +30,11 @@ const MARKER = /^(seat_|stand_|foot_|grip_|handle_)/;
  * TransformNodes so the game reads world positions straight off them.
  *
  * Returns { body, wheels, dims, rig } where rig = { doors, steer, pedals,
- * detail, markers } (doors keyed FL / FR / RL / RR).
+ * detail, markers, boot } (doors keyed FL / FR / RL / RR). `boot: true`
+ * gives the car an opening boot lid (rig.boot = { node, open, handle,
+ * floor }); parked cars do without (one draw fewer per material).
  */
-export function buildCarModel(id, scene) {
+export function buildCarModel(id, scene, { boot = false } = {}) {
   const src = sourceTree(id);
   if (!src) return null;
   const { get } = src;
@@ -97,6 +115,16 @@ export function buildCarModel(id, scene) {
   // Static exterior and cabin.
   const shell = new TransformNode('shell', scene);
   if (get('body')) { flattenInto(src, get('body'), shell); src.done.add(get('body')); }
+  const lid = boot ? BOOT_LIDS[id] : null;
+  let bootRig = null;
+  if (lid) {
+    const node = new TransformNode('boot', scene);
+    node.position.fromArray(lid.hinge);
+    cutParts(shell, node, lid.hinge, (x, y, z) => z < lid.z && y > lid.y0 && y < lid.y1);
+    mergeMaterials(node);
+    node.parent = body;
+    bootRig = { node, open: lid.open, handle: lid.handle, floor: lid.floor };
+  }
   mergeMaterials(shell);
   const cabin = new TransformNode('cabin', scene);
   if (get('cabin')) { flattenInto(src, get('cabin'), cabin); src.done.add(get('cabin')); }
@@ -123,8 +151,13 @@ export function buildCarModel(id, scene) {
   }
 
   const bb = boundsOf(shell);
+  if (bootRig) {
+    // The lid is part of the outline (the rear panel lives on it).
+    const lb = boundsOf(bootRig.node);
+    for (let k = 0; k < 3; k++) { bb.min[k] = Math.min(bb.min[k], lb.min[k]); bb.max[k] = Math.max(bb.max[k], lb.max[k]); }
+  }
   const dims = { w: bb.max[0] - bb.min[0], len: bb.max[2] - bb.min[2], h: bb.max[1] };
-  return { body, wheels, dims, rig: { doors, steer, steerFrame, pedals, detail, markers } };
+  return { body, wheels, dims, rig: { doors, steer, steerFrame, pedals, detail, markers, boot: bootRig } };
 }
 
 const _tinted = new Map();

@@ -30,29 +30,10 @@ const ENTER_PACE = { bike: 2, car: 1.6 };
  */
 export class VehicleSystem {
   constructor({ specs, scene, collision, player, animation, character, input, cameraRig, state, ui, collectibles, graphics }) {
-    Object.assign(this, { collision, player, animation, character, input, cameraRig, state, ui, collectibles });
-    this.vehicles = specs.map((sp, i) => {
-      const cfg = VEHICLE_TYPES[sp.type];
-      const mid = sp.model || cfg.model;
-      const model = cfg.kind === 'bike' ? buildBikeModel(mid, sp.paint, scene) : buildCarModel(mid, scene);
-      if (!model) throw new Error(`Vehicle model missing: ${mid}`);
-      const v = new Vehicle({ id: i, type: sp.type, cfg, model, x: sp.x, z: sp.z, yaw: sp.ry, collision, scene });
-      v.rig = model.rig;
-      v.body = model.body;
-      return v;
-    });
+    Object.assign(this, { scene, graphics, collision, player, animation, character, input, cameraRig, state, ui, collectibles });
+    this.vehicles = specs.map((sp, i) => this._make(sp, i));
     VehicleAssets.release();
-    // Lamps, gauges, pedals, mirrors: too small to show in the shadow map,
-    // yet each was a shadow draw for every vehicle near the heroine.
-    const casters = [];
-    for (const v of this.vehicles) {
-      for (const m of v.root.getChildMeshes(false)) {
-        if (m.metadata?.cast && sphereRadius(m) < 0.12) m.metadata.cast = false;
-      }
-      v.far = buildFarModel(v.chassis, [v.body, ...v.wheels.filter((w) => !w.mounted).map((w) => w.node)], [v.rig.detail]);
-      for (const m of v.root.getChildMeshes(false)) if (m.metadata?.cast) casters.push(m);
-    }
-    graphics.addCasters(casters);
+    for (const v of this.vehicles) this._finish(v);
     // Nothing parked inside a wall, pole, tree or another vehicle.
     for (const v of this.vehicles) this._clearSpot(v);
     this.active = null;     // vehicle she is in / getting into
@@ -83,6 +64,58 @@ export class VehicleSystem {
   }
 
   get driving() { return !!this.active; }
+
+  /** A vehicle from its spec ({ type, model?, x, z, ry, boot? }); its model must be loaded. */
+  _make(sp, id) {
+    const cfg = VEHICLE_TYPES[sp.type];
+    const mid = sp.model || cfg.model;
+    const model = cfg.kind === 'bike' ? buildBikeModel(mid, sp.paint, this.scene) : buildCarModel(mid, this.scene, { boot: !!sp.boot });
+    if (!model) throw new Error(`Vehicle model missing: ${mid}`);
+    const v = new Vehicle({ id, type: sp.type, cfg, model, x: sp.x, z: sp.z, yaw: sp.ry, collision: this.collision, scene: this.scene });
+    v.rig = model.rig;
+    v.body = model.body;
+    return v;
+  }
+
+  /** Shadow casters and the far model, once its source model is released. */
+  _finish(v) {
+    // Lamps, gauges, pedals, mirrors: too small to show in the shadow map,
+    // yet each was a shadow draw for every vehicle near the heroine.
+    for (const m of v.root.getChildMeshes(false)) {
+      if (m.metadata?.cast && sphereRadius(m) < 0.12) m.metadata.cast = false;
+    }
+    v.far = buildFarModel(v.chassis, [v.body, ...v.wheels.filter((w) => !w.mounted).map((w) => w.node)], [v.rig.detail]);
+    this.graphics.addCasters(v.root.getChildMeshes(false).filter((m) => m.metadata?.cast));
+  }
+
+  /**
+   * A drivable vehicle made at runtime (her car for a shopping trip):
+   * { type, model?, x, z, yaw, boot? }. Loads its model again if needed (the
+   * sources are released after building); remove() takes it away.
+   */
+  async add(spec) {
+    const mid = spec.model || VEHICLE_TYPES[spec.type].model;
+    await VehicleAssets.load(this.scene, undefined, [mid]);
+    const v = this._make({ ...spec, ry: spec.yaw }, this.vehicles.length);
+    VehicleAssets.release();
+    this._finish(v);
+    this._clearSpot(v);
+    this.vehicles.push(v);
+    return v;
+  }
+
+  /** Take a vehicle made by add() away again (she is put beside it if aboard). */
+  remove(v) {
+    const i = this.vehicles.indexOf(v);
+    if (i < 0) return;
+    if (this.active === v) this._finishExit(true);
+    if (this.candidate === v) this.candidate = null;
+    this.riders = this.riders.filter((f) => f.v !== v);
+    this.graphics.removeCasters(v.root.getChildMeshes(false));
+    v.dispose();
+    this.vehicles.splice(i, 1);
+    this.state.emit('vehicle:removed', { vehicle: v });
+  }
 
   /** True if v's footprint (+ margin) at (x, z) overlaps scenery or a placed vehicle. */
   _blocked(v, x, z, margin) {
@@ -168,7 +201,7 @@ export class VehicleSystem {
     // Parked vehicles away from the camera draw their merged far model.
     const cam = this.cameraRig.camera.position;
     for (const v of this.vehicles) {
-      const far = v !== this.active && v.speed < 0.05 && Math.hypot(cam.x - v.x, cam.z - v.z) > 15;
+      const far = v !== this.active && v.speed < 0.05 && !v.bootK && Math.hypot(cam.x - v.x, cam.z - v.z) > 15;
       if (far === v.far.isEnabled(false)) continue;
       v.far.setEnabled(far);
       v.body.setEnabled(!far);
