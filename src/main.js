@@ -27,6 +27,7 @@ import { TyreFX } from './vehicles/TyreFX.js';
 import { CarLights } from './vehicles/CarLights.js';
 import { NPCSystem } from './npcs/NPCSystem.js';
 import { SideMissionSystem } from './gameplay/SideMissionSystem.js';
+import { MallMode } from './mall/MallMode.js';
 import './ui/missions.css';
 import './ui/exploration.css';
 
@@ -107,6 +108,8 @@ async function boot() {
   shops.interiors = interiors;
   const saves = new SaveSystem({ state, player, cameraRig, collectibles, portal, missions, vehicles, world, collision, audio, ui, shops });
   const hudMenu = new HudMenu(document.getElementById('ui'), { state, collectibles, audio, minimap, missions, input, graphics: settings, adaptive, saves, shops });
+  // Shopping mode: trips to Hikari Mall from the title screen.
+  const mall = new MallMode({ scene, engine, camera, graphics, collision, state, ui, input, player, character, animation, cameraRig, vehicles, shops, audio, world, npcs, effects });
   // Resident voices: settings toggle, and the game's mute switch.
   hudMenu.voices = npcs.voices;
   // What residents can tell her about: fragments, open missions, the portal.
@@ -162,6 +165,7 @@ async function boot() {
   ui.setLoading(1, 'Ready');
 
   if (params.has('continue')) state.emit('ui:load');
+  else if (params.has('mall')) { state.setPhase(Phase.TITLE); state.emit('ui:mall'); }
   else if (params.has('autostart')) state.emit('ui:start');
   else {
     // Start the title orbit from the front so her face greets the player.
@@ -186,7 +190,7 @@ async function boot() {
   let titleTime = 0;
   let last = performance.now();
 
-  window.__game = { engine, scene, camera, state, player, cameraRig, input, collectibles, portal, world, animation, character, gfx, graphics, settings, collision, vehicles, npcs, missions, minimap, hudMenu, adaptive, saves, shops, interiors, tyreFX, carLights, audio, effects, ui };
+  window.__game = { engine, scene, camera, state, player, cameraRig, input, collectibles, portal, world, animation, character, gfx, graphics, settings, collision, vehicles, npcs, missions, minimap, hudMenu, adaptive, saves, shops, interiors, tyreFX, carLights, audio, effects, ui, mall };
 
   // ?fixedstep (testing): simulate in exact 1/60 s steps however slowly
   // frames render, so physics/animation match a real 60 fps phone.
@@ -206,7 +210,7 @@ async function boot() {
     scene.render();
     const cpuMs = performance.now() - cpuStart;
     adaptive.update(rawDt, cpuMs);
-    saves.update(Math.min(rawDt, 0.25));
+    if (!mall.active) saves.update(Math.min(rawDt, 0.25));
     settings.update(rawDt, state.phase === Phase.PLAYING && adaptive.exhausted, adaptive.targetMs * 1.2);
     fps.update(rawDt, cpuMs);
   };
@@ -220,7 +224,7 @@ async function boot() {
   // (or fallen through the ground), she is put back where she last stood.
   let lastInside = null;
   function keepInPlayArea() {
-    if (vehicles.driving || player.ride || player.climb || interiors.inside) return;
+    if (vehicles.driving || player.ride || player.climb || interiors.inside || mall.active) return;
     const p = player.position;
     const inside = world.inPlayArea(p) && p.y > -5;
     if (inside) {
@@ -235,7 +239,7 @@ async function boot() {
 
   function update(dt) {
     const playing = state.phase === Phase.PLAYING;
-    const controlsActive = playing && !missions.dialogOpen && !hudMenu.open && !shops.open && !interiors.busy && !interiors.seated;
+    const controlsActive = playing && !missions.dialogOpen && !hudMenu.open && !shops.open && !interiors.busy && !interiors.seated && !mall.busy;
     input.update();
     if (state.phase === Phase.TITLE) {
       // Gentle showcase sway in front of the heroine (street side, never into shopfronts).
@@ -245,6 +249,18 @@ async function boot() {
     }
     vehicles.update(dt, controlsActive);
     player.update(dt, controlsActive);
+    if (mall.active) {
+      // A shopping trip: the city sleeps, the mall runs.
+      audio.engine(vehicles.engine());
+      cameraRig.update(dt, player, controlsActive);
+      lighting.update(dt, player.position, camera);
+      mall.update(dt);
+      audio.skid(tyreFX.update(dt, vehicles.vehicles).skid);
+      carLights.update(dt, vehicles.vehicles, vehicles.phase === 'drive' ? vehicles.active : null);
+      character.update(dt);
+      audio.update(dt, player, camera, world);
+      return;
+    }
     keepInPlayArea();
     audio.engine(vehicles.engine());
     cameraRig.update(dt, player, controlsActive);

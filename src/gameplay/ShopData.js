@@ -8,7 +8,10 @@
  *   read      — magazine / book: kept, readable from the Bag
  *   top / bottom / shoes / hair — outfit colour, kept, worn from the Bag
  *   vehicle   — the keys to a showroom vehicle (it is locked until bought)
+ *   pantry    — groceries from Hikari Mall with no effect (kept, counted)
  */
+import { GROCERIES, CLOTHES } from '../mall/MallCatalog.js';
+
 export const ITEMS = {
   // Drinks (vending machines, konbini, café)
   ramune: { name: 'Ramune', kind: 'drink', price: 6, icon: '🫧', text: 'Fizzy marble soda. Run faster for a minute.', boost: { run: 60 } },
@@ -62,6 +65,15 @@ export const ITEMS = {
   keysScooter: { name: 'Showroom scooter', kind: 'vehicle', price: 120, icon: '🛵', vehicle: 'showroom-scooter', text: 'The keys to the cream scooter on the lot.' },
   keysKei: { name: 'Showroom kei car', kind: 'vehicle', price: 220, icon: '🚗', vehicle: 'showroom-kei', text: 'The keys to the pink kei car on the lot.' },
 };
+
+// Hikari Mall's goods (shopping mode), kept in her Bag like everything else:
+// drinks and snacks with their boost, the rest in the pantry, clothes worn.
+const AISLE_ICON = { drinks: '🥤', dairy: '🧈', bakery: '🥐', produce: '🍎', snacks: '🍪', pantry: '🍚', frozen: '🧊', household: '🧴' };
+const PART_ICON = { top: '👕', bottom: '👖', shoes: '👟' };
+for (const p of GROCERIES) {
+  ITEMS[p.id] = { name: p.name, kind: p.kind || 'pantry', price: p.price, icon: AISLE_ICON[p.aisle], text: `${p.brand} · Hikari Mall`, ...(p.boost && { boost: p.boost }), mall: true };
+}
+for (const c of CLOTHES) ITEMS[c.id] = { name: c.name, kind: c.kind, price: c.price, icon: PART_ICON[c.kind], color: c.color, text: 'From Hikari Mall.', mall: true };
 
 /** Shop types: name, sign colour and stock. */
 export const SHOPS = {

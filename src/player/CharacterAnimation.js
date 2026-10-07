@@ -225,7 +225,10 @@ export class CharacterAnimation {
     //   eat:   right hand to the mouth
     //   crouch: knees and back bend to reach a low shelf
     //   bag:   right hand holds a shopping bag out at her side (IK)
-    this.act = { carry: 0, reach: null, holdR: 0, sit: 0, eat: 0, crouch: 0, bag: 0 };
+    //   hands: { wl, wr, l: [x, y, z], r: [x, y, z] } both hands to world
+    //          points, fingers closed (a cart handle, clothes on hangers);
+    //          takes over from the basket / reach / bag when set
+    this.act = { carry: 0, reach: null, holdR: 0, sit: 0, eat: 0, crouch: 0, bag: 0, hands: null };
     this.actPose = new Pose();
   }
 
@@ -426,7 +429,8 @@ export class CharacterAnimation {
     this._actIK();
     // Hands on the bars / wheel close around them as the hand IK takes hold.
     const grip = ride?.hands;
-    this._fingers(wLoco * this.wRun + wAir * 0.5, Math.max(grip ? grip.wl : 0, act.carry), Math.max(grip ? grip.wr : 0, act.holdR));
+    const held = act.hands;
+    this._fingers(wLoco * this.wRun + wAir * 0.5, Math.max(grip ? grip.wl : 0, act.carry, held ? held.wl : 0), Math.max(grip ? grip.wr : 0, act.holdR, held ? held.wr : 0));
     this._face(dt);
   }
 
@@ -434,9 +438,19 @@ export class CharacterAnimation {
   _actIK() {
     const act = this.act;
     const wr = Math.max(act.reach?.w || 0, act.eat, act.bag);
-    if (act.carry < 0.001 && wr < 0.001) return;
+    const held = act.hands;
+    if (act.carry < 0.001 && wr < 0.001 && !(held && (held.wl > 0.001 || held.wr > 0.001))) return;
     this._refresh();
     const m = this.character.root.getWorldMatrix();
+    if (held) {
+      // Both hands to given points; elbows down and back, each to its side.
+      const t = this._holdT || (this._holdT = [0, 0, 0, 0, 0, 0]);
+      t[0] = held.l[0]; t[1] = held.l[1]; t[2] = held.l[2]; t[3] = held.r[0]; t[4] = held.r[1]; t[5] = held.r[2];
+      const side = Vector3.TransformNormalFromFloatsToRef(1, 0, 0, m, _v4).normalize();
+      const back = Vector3.TransformNormalFromFloatsToRef(0, 0, -1, m, _v5).normalize();
+      this._limbIK('Arm', { wl: held.wl, wr: held.wr, hands: t, pole: [back.x * 0.35, -1, back.z * 0.35], side: [side.x, side.y, side.z], spread: 0.6, palm: false });
+      return;
+    }
     const t = this._actT || (this._actT = [0, 0, 0, 0, 0, 0]);
     // Basket: hand out from her left hip (clear of the leg), elbow bent.
     const l = Vector3.TransformCoordinatesFromFloatsToRef(BASKET_HAND[0], BASKET_HAND[1], BASKET_HAND[2], m, _v1);

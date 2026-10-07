@@ -67,6 +67,9 @@ export class PlayerController {
     this.ride = null;
     // Walk by herself to a point (e.g. the car door), then call done().
     this.autoWalk = null;
+    // Movement limits while handling something (a shopping cart):
+    // { maxSpeed (m/s), jump (allowed) }; null = free.
+    this.restrict = null;
   }
 
   spawn(x, z, yaw) {
@@ -131,6 +134,7 @@ export class PlayerController {
     if (mag > 0.02) {
       if (mag < RUN_THRESHOLD) targetSpeed = MathUtils.lerp(0.7, WALK_SPEED, mag / RUN_THRESHOLD);
       else { run = 1; targetSpeed = RUN_SPEED * this.runBoost; }
+      if (this.restrict) { targetSpeed = Math.min(targetSpeed, this.restrict.maxSpeed); if (targetSpeed <= WALK_SPEED) run = 0; }
     }
     this.runBlend = MathUtils.lerp(this.runBlend, run, 1 - Math.exp(-5 * dt));
 
@@ -158,7 +162,7 @@ export class PlayerController {
     this.turnRate = MathUtils.lerp(this.turnRate, tr, 1 - Math.exp(-12 * dt));
 
     // ---- Jump (buffer + coyote) ----
-    if (controlsActive && this.input.consumeJump() && !this.autoWalk) this.jumpBuffer = JUMP_BUFFER;
+    if (controlsActive && this.input.consumeJump() && !this.autoWalk && !(this.restrict && !this.restrict.jump)) this.jumpBuffer = JUMP_BUFFER;
     this.jumpBuffer -= dt;
     this.coyote = this.grounded ? COYOTE : this.coyote - dt;
     // Climb instead of jumping when there's a car/van roof right in front.

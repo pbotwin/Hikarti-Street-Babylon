@@ -27,6 +27,7 @@ export class UI {
       </div>
       <div class="screen title hidden">
         <div class="petals">${Array.from({ length: 16 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${6 + (i % 5) * 1.7}s;--delay:${-((i * 1.3) % 9)}s;--s:${0.6 + (i % 4) * 0.25}"></i>`).join('')}</div>
+        <button class="btn mall-mode" aria-label="Shopping mode: Hikari Mall"><span class="mall-ico">🛒</span><span class="mall-text"><b>Shopping mode</b><small>Hikari Mall</small></span><span class="chev">›</span></button>
         <div class="title-card">
           <div class="title-top">
             <div class="kanji-wrap">
@@ -101,6 +102,11 @@ export class UI {
       this._fullscreen();
       state.emit('ui:load');
     });
+    // Shopping mode: a trip to Hikari Mall (MallMode), from the title screen.
+    root.querySelector('.mall-mode').addEventListener('click', () => {
+      this._fullscreen();
+      state.emit('ui:mall');
+    });
     const newGame = root.querySelector('.new-game');
     newGame.addEventListener('click', () => {
       // Replacing a save takes a second tap (no browser dialogs).
@@ -156,6 +162,13 @@ export class UI {
   setLoading(p, text) {
     this.fill.style.transform = `scaleX(${Math.max(0, Math.min(1, p))})`;
     if (text) this.status.textContent = text;
+  }
+
+  /** The loading veil again after boot (a shopping trip loading); the next phase change hides it. */
+  showLoading() {
+    this.setLoading(0, '');
+    this.loading.classList.remove('hidden');
+    this.titleScreen.classList.add('hidden');
   }
 
   _onPhase(phase) {

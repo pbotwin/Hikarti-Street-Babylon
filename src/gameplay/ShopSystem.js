@@ -121,6 +121,17 @@ export class ShopSystem {
     return r;
   }
 
+  /** A shopping trip's receipt (Hikari Mall): clothes to the wardrobe, goods to the Bag. */
+  addMallPurchases(receipt) {
+    for (const { id, qty } of receipt) {
+      const item = ITEMS[id];
+      if (!item) continue;
+      if (WEARABLE.has(item.kind)) this.owned.add(id);
+      else this.inventory[id] = (this.inventory[id] || 0) + qty;
+    }
+    if (receipt.length) this.state.emit('shop:bought', { id: 'mall', price: 0, shop: 'Hikari Mall' });
+  }
+
   use(itemId) {
     const item = ITEMS[itemId];
     if (!item?.boost || !(this.inventory[itemId] > 0)) return false;
@@ -409,13 +420,15 @@ export class ShopSystem {
   /** Bag sections: items to use, reading, wardrobe and keys. */
   renderBag(el, rerender) {
     const ids = (pred) => Object.keys(ITEMS).filter((id) => pred(ITEMS[id], id));
-    const items = ids((it, id) => this.inventory[id] > 0);
+    const items = ids((it, id) => this.inventory[id] > 0 && it.kind !== 'pantry');
+    const pantry = ids((it, id) => this.inventory[id] > 0 && it.kind === 'pantry');
     const reading = ids((it, id) => it.kind === 'read' && this.owned.has(id));
     const wardrobe = ids((it, id) => WEARABLE.has(it.kind) && this.owned.has(id));
     const keys = ids((it, id) => it.kind === 'vehicle' && this.owned.has(id));
     const chip = (id, btn) => { const it = ITEMS[id]; return `<div class="bag-item"><span>${it.icon}</span><b>${it.color ? `<i class="swatch" style="background:${it.color}"></i>` : ''}${it.name}${this.inventory[id] > 1 ? ` ×${this.inventory[id]}` : ''}</b>${btn}</div>`; };
     el.insertAdjacentHTML('beforeend', `
       <div class="bag-section"><h3>Items</h3>${items.length ? items.map((id) => chip(id, `<button class="pill" data-use="${id}">${ITEMS[id].kind === 'drink' ? 'Drink' : 'Eat'}</button>`)).join('') : '<p class="muted">Buy drinks and snacks at shops and vending machines.</p>'}</div>
+      ${pantry.length ? `<div class="bag-section"><h3>Pantry</h3>${pantry.map((id) => chip(id, '<span class="muted">From Hikari Mall</span>')).join('')}</div>` : ''}
       ${reading.length ? `<div class="bag-section"><h3>Reading</h3>${reading.map((id) => chip(id, `<button class="pill" data-read="${id}">Read</button>`)).join('')}</div>` : ''}
       <div class="bag-section"><h3>Wardrobe</h3>${wardrobe.map((id) => chip(id, this.outfit[ITEMS[id].kind] === id ? '<button class="pill on" disabled>Wearing</button>' : `<button class="pill" data-wear="${id}">Wear</button>`)).join('')}</div>
       ${keys.length ? `<div class="bag-section"><h3>Keys</h3>${keys.map((id) => chip(id, '<span class="muted">On the Hikari Motors lot</span>')).join('')}</div>` : ''}`);
