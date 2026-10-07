@@ -105,6 +105,18 @@ export class MallShopping {
     return null;
   }
 
+  /**
+   * How far a cart in `slot` is pulled back to be clear of its corral: to
+   * the open end's slot and a cart length beyond. (A fixed 55 cm left a cart
+   * taken from the back of a near-empty corral inside its rails: carts don't
+   * reverse, so she was stuck with it.)
+   */
+  _mouth(slot) {
+    let end = slot;
+    for (let o = this._neighbour(end, -1); o; o = this._neighbour(end, -1)) end = o;
+    return Math.hypot(end.x - slot.x, end.z - slot.z) + CART.half.z * 2;
+  }
+
   /** A cart lifts the back gate of the one it is nested into. */
   _nest() {
     for (const s of this.slots) if (s.cart) s.cart.setNested(!!this._neighbour(s, -1)?.cart);
@@ -296,15 +308,15 @@ export class MallShopping {
       const her = this.her;
       her.freeze(true);
       const yaw0 = her.yaw, x0 = her.x, z0 = her.z;
-      const out = slot ? 0.55 : 0, sx = cart.x, sz = cart.z;
+      const out = slot ? this._mouth(slot) : 0, sx = cart.x, sz = cart.z;
       this.tl.play([
         { d: 0.4, step: (k) => {
           cart.pusher(_spot);
           her.place(lerp(x0, _spot.x, ease(k)), lerp(z0, _spot.z, ease(k)), lerpAngle(yaw0, cart.yaw, ease(k)));
           this._hands(cart, ease(k));
         } },
-        // Out of the nest: pulled straight back.
-        { d: out ? 0.6 : 0, step: (k) => {
+        // Out of the nest: pulled straight back, past the corral's open end.
+        { d: out ? 0.4 + out * 0.45 : 0, step: (k) => {
           const m = ease(k) * out;
           cart.moveTo(sx - Math.sin(cart.yaw) * m, sz - Math.cos(cart.yaw) * m, cart.yaw);
           cart.pusher(_spot);
