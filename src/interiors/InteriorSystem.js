@@ -398,8 +398,8 @@ export class InteriorSystem {
       this._light = {
         dir: L.sunDir.clone(), color: L.sun.diffuse, spec: L.sun.specular, i: L.sun.intensity, sky: L.hemi.diffuse, ground: L.hemi.groundColor, hi: L.hemi.intensity,
         toonSun: ToonPlugin.sun.clone(), toonAmb: ToonPlugin.ambient.clone(),
-        rays: this.gfx.raysAllowed, env: scene.environmentTexture, envI: scene.environmentIntensity, darkness: this.gfx.shadows.darkness, room,
-        ink: this.character.meshes.filter((m) => m.renderOutline),
+        rays: this.gfx.raysAllowed, env: scene.environmentTexture, envI: scene.environmentIntensity, darkness: this.gfx.shadows.darkness, room, ink: this.gfx.ink,
+        outlined: this.character.meshes.filter((m) => m.renderOutline),
       };
       L.sunDir.set(0.12, 0.97, 0.2).normalize();
       // The original's shop rig, in linear colours like Graphics' sunset rig.
@@ -419,7 +419,8 @@ export class InteriorSystem {
       // No photo yet: no reflections (the sky's would light the room orange).
       if (env) this.gfx.setEnvironment(env, this._indoorMeshes(room));
       scene.environmentIntensity = env ? 0.85 : 0;
-      for (const m of this._light.ink) m.renderOutline = false;
+      for (const m of this._light.outlined) m.renderOutline = false;
+      this.gfx.ink = 0;
       this.gfx.raysAllowed = false;
     } else if (this._light) {
       const s = this._light;
@@ -427,7 +428,8 @@ export class InteriorSystem {
       ToonPlugin.sun.copyFrom(s.toonSun); ToonPlugin.ambient.copyFrom(s.toonAmb);
       L.hemi.diffuse = s.sky; L.hemi.groundColor = s.ground; L.hemi.intensity = s.hi;
       this.gfx.setEnvironment(s.env, this._indoorMeshes(s.room)); scene.environmentIntensity = s.envI;
-      for (const m of s.ink) m.renderOutline = true;
+      for (const m of s.outlined) m.renderOutline = true;
+      this.gfx.ink = s.ink;
       this.gfx.raysAllowed = s.rays;
       this._light = null;
     }

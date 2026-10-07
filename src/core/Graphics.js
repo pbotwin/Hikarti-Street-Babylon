@@ -5,6 +5,7 @@ import {
 } from '@babylonjs/core';
 import { HDRFiltering } from '@babylonjs/core/Materials/Textures/Filtering/hdrFiltering.js';
 import { Sky } from '../world/Sky.js';
+import { InkRays } from './InkRays.js';
 import { ToonPlugin } from '../player/Vrm.js';
 
 /**
@@ -14,7 +15,8 @@ import { ToonPlugin } from '../player/Vrm.js';
  *    by the real sky colour (ReflectionProbe → environmentTexture)
  *  - a warm low sun with the original's shadow map: one ±22 m square that
  *    follows her, snapped to texels, holding only the casters inside it
- *  - HDR post: MSAA, bloom, ACES tone mapping, contrast, vignette, sharpen
+ *  - the original's ink outlines and light rays (InkRays), then HDR post:
+ *    MSAA, bloom, ACES tone mapping, contrast, vignette, sharpen
  * Presets scale shadow resolution and softness, post effects and render scale.
  */
 // The original's shadow square (half size, m) and how far behind it the light sits.
@@ -22,10 +24,10 @@ const SHADOW_EXTENT = 22;
 const SHADOW_BACK = 70;
 
 export const PRESETS = {
-  low: { label: 'Low', scale: 0.75, shadow: 1024, softShadows: false, msaa: 1, fxaa: true, bloom: false },
-  medium: { label: 'Medium', scale: 1, shadow: 2048, softShadows: false, msaa: 2, fxaa: false, bloom: true },
-  high: { label: 'High', scale: 1, shadow: 2048, softShadows: true, msaa: 4, fxaa: false, bloom: true },
-  ultra: { label: 'Ultra', scale: 1, shadow: 4096, softShadows: true, msaa: 4, fxaa: false, bloom: true },
+  low: { label: 'Low', scale: 0.75, shadow: 1024, softShadows: false, msaa: 1, fxaa: true, bloom: false, rays: 0 },
+  medium: { label: 'Medium', scale: 1, shadow: 2048, softShadows: false, msaa: 2, fxaa: false, bloom: true, rays: 10 },
+  high: { label: 'High', scale: 1, shadow: 2048, softShadows: true, msaa: 4, fxaa: false, bloom: true, rays: 20 },
+  ultra: { label: 'Ultra', scale: 1, shadow: 4096, softShadows: true, msaa: 4, fxaa: false, bloom: true, rays: 20 },
 };
 
 /** Preset for this device from the GPU name, platform and memory. */
@@ -169,7 +171,14 @@ export class Graphics {
 
   /** Light rays: what a GPU that can't keep up drops first (AdaptivePerformance, shops). */
   get raysAllowed() { return this._raysAllowed; }
-  set raysAllowed(on) { this._raysAllowed = on; }
+  set raysAllowed(on) {
+    this._raysAllowed = on;
+    if (this.inkRays) this.inkRays.raysAllowed = on;
+  }
+
+  /** Ink outline strength (0 inside the shops, which are meant to look like real rooms). */
+  get ink() { return this.inkRays?.strength ?? 0; }
+  set ink(v) { if (this.inkRays) this.inkRays.strength = v; }
 
   /** Draw calls in the last rendered frame. */
   drawCalls() { return this._calls; }
@@ -263,10 +272,15 @@ export class Graphics {
     this._shadowAt = -Infinity;
     this.shadows = sg;
 
-    // Post-processing.
+    // Post-processing: ink and rays first (they take the MSAA scene and its
+    // depth), then Babylon's pipeline.
+    const ink = this.inkRays?.strength ?? 0.6;
     this.pipeline?.dispose();
+    this.inkRays?.dispose();
+    this.inkRays = new InkRays(scene, camera, this.sunDir, { samples: p.msaa, rays: p.rays });
+    this.inkRays.strength = ink;
+    this.inkRays.raysAllowed = this._raysAllowed;
     const pipe = new DefaultRenderingPipeline('post', true, scene, [camera]);
-    pipe.samples = p.msaa;
     pipe.fxaaEnabled = p.fxaa;
     pipe.bloomEnabled = p.bloom;
     pipe.bloomThreshold = 0.92;
