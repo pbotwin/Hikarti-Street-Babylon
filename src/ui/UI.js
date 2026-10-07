@@ -1,5 +1,6 @@
 import { Phase } from '../core/GameState.js';
 import { offerAndroidApp, ANDROID_APP_PAGE } from '../core/platform.js';
+import { Fullscreen } from './Fullscreen.js';
 
 /**
  * Minimal DOM UI: loading veil, title card, fragment counter, toasts and the
@@ -131,6 +132,7 @@ export class UI {
     root.querySelector('.continue').addEventListener('click', () => state.emit('ui:continue'));
     root.querySelector('.restart').addEventListener('click', () => state.emit('ui:restart'));
 
+    this.fullscreen = new Fullscreen(root, (title, sub) => this.toast(title, sub));
     this.buildEl = root.querySelector('.build');
     state.on('phase', ({ phase }) => this._onPhase(phase));
     // A shopping trip is not the story's start: no fragments greeting.
@@ -226,13 +228,7 @@ export class UI {
     this._toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), 3200);
   }
 
-  _fullscreen() {
-    const el = document.documentElement;
-    if (matchMedia('(pointer: coarse)').matches && el.requestFullscreen && !document.fullscreenElement) {
-      // No orientation lock: the game plays in portrait and landscape.
-      el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
-    }
-  }
+  _fullscreen() { this.fullscreen.enter(); }
 
   update(dt, player, world) {
     const district = world?.getDistrict(player.position);

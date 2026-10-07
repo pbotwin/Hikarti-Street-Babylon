@@ -57,7 +57,7 @@ export class MallShopping {
       corral: P('Take a cart', ICON.cart, 4, () => this.takeCart(this._slot.cart, this._slot)),
     };
     this._aimAt = { f: null, u: null };
-    this._seen = { cart: null, version: -1, held: null, coins: -1 };
+    this._seen = { cart: null, version: -1, held: null };
   }
 
   async init() {
@@ -591,14 +591,14 @@ export class MallShopping {
 
   // ------------------------------------------------------------ cart panel
   _panel() {
-    const seen = this._seen, held = this.held, coins = this.ctx.wallet.coins, cart = this.mine;
-    if (seen.cart === cart && seen.version === (cart?.version ?? -1) && seen.held === held && seen.coins === coins) return;
-    seen.cart = cart; seen.version = cart?.version ?? -1; seen.held = held; seen.coins = coins;
+    const seen = this._seen, held = this.held, cart = this.mine;
+    if (seen.cart === cart && seen.version === (cart?.version ?? -1) && seen.held === held) return;
+    seen.cart = cart; seen.version = cart?.version ?? -1; seen.held = held;
     const items = this.unpaid, hud = this.ctx.hud;
     if (!items.length && !held) { hud.panel('cart', null); this._panelEl = null; return; }
     const total = totalOf(items);
     const el = hud.panel('cart', `
-      <div class="basket-head"><b>🛒 Cart · ${items.length}</b><span>${total} ◈ · you have ${coins}</span></div>
+      <div class="basket-head"><b>🛒 Cart · ${items.length}</b><span>${total} ◈</span></div>
       <div class="basket-items">${items.map((e, i) => `<div class="basket-item"><span>${ICON.take}</span><b>${esc(e.p.name)}</b><i>${e.p.price} ◈</i><button class="put" data-out="${i}" aria-label="Take out">✕</button></div>`).join('')}</div>
       <small>${held ? `In your hand: ${esc(held.p.name)} · back on its shelf, or in the cart` : 'Pay at a checkout · ✕ takes it out'}</small>`);
     if (el !== this._panelEl) {

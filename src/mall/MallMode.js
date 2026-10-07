@@ -162,11 +162,21 @@ export class MallMode {
     const root = this.dom.panels;
     return {
       toast: (title, sub = '') => this.deps.ui.toast(title, sub),
-      /** A named side panel; null removes it. */
+      /**
+       * A named side panel; null removes it. Its first child is the header:
+       * on touch screens a panel shows only that (a chip) until tapped, as
+       * the open lists covered her and the look area on phones.
+       */
       panel: (name, html) => {
         let el = root.querySelector(`[data-panel="${name}"]`);
         if (html == null) { el?.remove(); return null; }
-        if (!el) { el = document.createElement('aside'); el.className = 'mall-panel'; el.dataset.panel = name; root.append(el); }
+        if (!el) {
+          el = document.createElement('aside');
+          el.className = 'mall-panel';
+          el.dataset.panel = name;
+          el.classList.toggle('open', document.documentElement.dataset.input !== 'touch');
+          root.append(el);
+        }
         el.innerHTML = html;
         return el;
       },
@@ -198,6 +208,11 @@ export class MallMode {
       prompt: root.querySelector('.mall-action'),
       receipt: root.querySelector('.mall-receipt'),
     };
+    // A panel's header opens or folds it (its buttons do their own thing).
+    this.dom.panels.addEventListener('click', (e) => {
+      const head = e.target.closest('.mall-panel > :first-child');
+      if (head && !e.target.closest('button')) head.parentElement.classList.toggle('open');
+    });
     this.dom.prompt.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.dom.prompt.addEventListener('click', (e) => { e.stopPropagation(); this._act(); });
     this.dom.receipt.querySelector('.mall-receipt-ok').addEventListener('click', () => this._leave());
