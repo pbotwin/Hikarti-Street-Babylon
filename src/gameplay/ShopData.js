@@ -73,7 +73,7 @@ const PART_ICON = { top: '👕', bottom: '👖', shoes: '👟' };
 for (const p of GROCERIES) {
   ITEMS[p.id] = { name: p.name, kind: p.kind || 'pantry', price: p.price, icon: AISLE_ICON[p.aisle], text: `${p.brand} · Hikari Mall`, ...(p.boost && { boost: p.boost }), mall: true };
 }
-for (const c of CLOTHES) ITEMS[c.id] = { name: c.name, kind: c.kind, price: c.price, icon: PART_ICON[c.kind], color: c.color, text: 'From Hikari Mall.', mall: true };
+for (const c of CLOTHES) ITEMS[c.id] = { name: c.name, kind: c.kind, garment: c.garment, price: c.price, icon: PART_ICON[c.kind], color: c.color, text: 'From Hikari Mall.', mall: true };
 
 /** Shop types: name, sign colour and stock. */
 export const SHOPS = {

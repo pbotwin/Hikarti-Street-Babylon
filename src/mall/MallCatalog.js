@@ -9,8 +9,10 @@
  *   color  package colour, label: the printed band's colour
  *   kind / boost: as ShopData items (drinks run faster, food jumps higher);
  *   everything else goes to the pantry in her Bag.
- * Clothing: { id, name, kind: top | bottom | shoes, color, price, rack }
- *   worn like Sakura Threads clothes (the colour of that part of her outfit).
+ * Clothing: { id, name, kind: top | bottom | shoes, garment, color, price, rack }
+ *   garment: the 3D garment she wears (src/player/Garments.js):
+ *   tee | hoodie | sweatshirt | blouse | shorts | jeans | skirt | sneakers,
+ *   in that colour.
  */
 
 const g = (id, name, brand, aisle, price, shape, color, label, extra = {}) => ({ id, name, brand, aisle, price, look: { shape, color, label }, ...extra });
@@ -105,7 +107,8 @@ export const RACKS = {
   sneakers: 'Sneakers',
 };
 
-const c = (id, name, kind, color, price, rack) => ({ id, name, kind, color, price, rack });
+const GARMENT = { tees: 'tee', hoodies: 'hoodie', blouses: 'blouse', shorts: 'shorts', jeans: 'jeans', skirts: 'skirt', sneakers: 'sneakers' };
+const c = (id, name, kind, color, price, rack, garment = GARMENT[rack]) => ({ id, name, kind, garment, color, price, rack });
 
 export const CLOTHES = [
   c('mallTeeSky', 'Sky tee', 'top', '#9fd0f0', 18, 'tees'),
@@ -116,7 +119,7 @@ export const CLOTHES = [
   c('mallHoodieGrey', 'Grey hoodie', 'top', '#9a9aa2', 34, 'hoodies'),
   c('mallHoodieNavy', 'Navy hoodie', 'top', '#2c3a5c', 34, 'hoodies'),
   c('mallHoodieLilac', 'Lilac hoodie', 'top', '#c4b2e8', 34, 'hoodies'),
-  c('mallSweatSage', 'Sage sweatshirt', 'top', '#a3b899', 30, 'hoodies'),
+  c('mallSweatSage', 'Sage sweatshirt', 'top', '#a3b899', 30, 'hoodies', 'sweatshirt'),
   c('mallBlouseIvory', 'Ivory blouse', 'top', '#f3ecdc', 28, 'blouses'),
   c('mallBlouseRose', 'Rose blouse', 'top', '#f2b8c6', 28, 'blouses'),
   c('mallBlouseSky', 'Powder-blue blouse', 'top', '#c2d8ec', 28, 'blouses'),
