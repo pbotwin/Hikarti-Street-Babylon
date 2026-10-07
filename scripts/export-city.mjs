@@ -6,6 +6,10 @@
 //                       node extras: { cast, lod: { cell, level }, shadow,
 //                       wind: { strength, start } | grass, anim,
 //                       instanceColor: [r, g, b, …] (linear) }
+// Materials drawn as layers on another surface (road paint, tactile paving,
+// manholes, lawns…) carry their polygon offset as material extras
+// { offset: [factor, units] }: glTF has no field for it, and without it they
+// z-fought with the surface below.
 import { chromium } from 'playwright-core';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
@@ -87,6 +91,15 @@ await page.evaluate(async () => {
     o.userData = part ? tags : {};
   }
   console.log('[x] classes', JSON.stringify([...cls.values()].reduce((a, c) => ((a[c] = (a[c] || 0) + 1), a), {})));
+  const layered = new Map();
+  for (const o of keep) {
+    for (const m of [o.material].flat()) {
+      if (!m?.polygonOffset || layered.has(m)) continue;
+      layered.set(m, m.userData);
+      m.userData = { offset: [m.polygonOffsetFactor, m.polygonOffsetUnits] };
+    }
+  }
+  console.log('[x] layered materials', layered.size);
   for (const { hi, lo } of g.world.lod.cells) { hi.visible = true; lo.visible = true; }
   const hiddenLive = [...live].filter((o) => o.visible);
   for (const o of hiddenLive) o.visible = false;
@@ -102,6 +115,7 @@ await page.evaluate(async () => {
     console.log('[x] exported', pass);
   }
   for (const [o, s] of saved) { o.userData = s.userData; o.visible = s.visible; o.name = s.name; }
+  for (const [m, userData] of layered) m.userData = userData;
   for (const o of hiddenLive) o.visible = true;
   for (const o of others) o.visible = true;
 });

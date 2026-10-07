@@ -17,6 +17,24 @@ await MeshoptEncoder.ready;
 await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
 
+/**
+ * Wrap a palette step so layered materials (extras.offset: road paint,
+ * tactile paving…) keep their own material: palette ignores extras and merged
+ * them into plain colours, dropping the polygon offset. Palette skips
+ * primitives without a material, so theirs is detached around it.
+ */
+function keepLayers(palette) {
+  const held = new Map();
+  const detach = (doc) => {
+    for (const mesh of doc.getRoot().listMeshes()) for (const prim of mesh.listPrimitives()) {
+      const m = prim.getMaterial();
+      if (m?.getExtras().offset) { held.set(prim, m); prim.setMaterial(null); }
+    }
+  };
+  const attach = () => { for (const [prim, m] of held) prim.setMaterial(m); held.clear(); };
+  return [detach, palette, attach];
+}
+
 for (const name of ['cast', 'nocast', 'parts']) {
   const input = `raw/city-${name}.glb`, output = `public/world/city-${name}.opt.glb`;
   const doc = await io.read(input);
@@ -27,7 +45,7 @@ for (const name of ['cast', 'nocast', 'parts']) {
     if (t && !t.getName().startsWith('alpha:')) t.setName(`alpha:${t.getName()}`);
   }
   const steps = [F.dedup(), F.prune({ keepExtras: true })];
-  if (name !== 'parts') steps.push(F.instance({ min: 5 }), F.palette({ min: 5 }), F.flatten(), F.join());
+  if (name !== 'parts') steps.push(F.instance({ min: 5 }), ...keepLayers(F.palette({ min: 5 })), F.flatten(), F.join());
   steps.push(
     F.weld(), F.resample(), F.prune({ keepExtras: true }), F.sparse(),
     F.textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], pattern: /^alpha:/, lossless: true }),

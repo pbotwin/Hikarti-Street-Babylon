@@ -71,6 +71,10 @@ function instanceColors(rgb) {
 
 function tuneMaterial(mat) {
   if (!mat) return;
+  // Layers drawn on another surface (road paint, manholes, lawns): the
+  // original's polygon offset, from the export's extras.
+  const offset = mat.metadata?.gltf?.extras?.offset;
+  if (offset) [mat.zOffset, mat.zOffsetUnits] = offset;
   // Sky reflections for glossy surfaces only, as in the original: on matte
   // ground and walls the sky light read as a grey, washed-out sheen.
   mat.environmentIntensity = /glass|metal|carPaint/i.test(mat.name) ? 0.9 : 0;
