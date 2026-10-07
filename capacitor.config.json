@@ -3,7 +3,7 @@
   "appName": "Hikari Street",
   "webDir": "app-shell",
   "server": {
-    "url": "https://m1kava.github.io/babylon-hikari-street/",
+    "url": "https://pbotwin.github.io/Hikarti-Street-Babylon/",
     "errorPath": "index.html"
   },
   "android": {

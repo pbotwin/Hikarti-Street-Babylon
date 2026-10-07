@@ -1,0 +1,74 @@
+# Builds the game and publishes it to GitHub Pages so it can be opened on a phone.
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # The Android app is built only once its signing key is in the repo's
+      # secrets (README → Android app); until then the download page says
+      # "coming soon" and the site deploys as usual.
+      ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/setup-java@v4
+        if: env.ANDROID_SIGNING == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      # Signed APK for public/download, with its version next to it.
+      - name: Build the Android app
+        if: env.ANDROID_SIGNING == 'true'
+        continue-on-error: true   # never block the web deploy
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APP_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
+          export APP_VERSION_NAME="$(node -p "require('./package.json').version")+${GITHUB_SHA::7}"
+          npx cap sync android
+          (cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon)
+          cp android/app/build/outputs/apk/release/app-release.apk dist/download/hikari-street.apk
+          node -e "const fs = require('fs'); fs.writeFileSync('dist/download/version.json', JSON.stringify({ version: process.env.APP_VERSION_NAME, code: +process.env.APP_VERSION_CODE, size: fs.statSync('dist/download/hikari-street.apk').size, date: new Date().toISOString() }));"
+          rm "$RUNNER_TEMP/release.jks"
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
