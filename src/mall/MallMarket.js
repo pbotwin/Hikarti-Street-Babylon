@@ -9,14 +9,21 @@ import {
  * The supermarket's fixtures, built from the plan: gondola shelving down
  * eight aisles, open dairy chillers, glass-door coolers (their doors are
  * MallDoors'), bakery racks, the produce wall and tables, chest freezers,
- * four checkouts and the cart corral, with aisle and department signs.
- * Shelves are empty: MallShopping stocks them from the layout.
+ * four checkouts with their sweet racks and the cart corral, with aisle and
+ * department signs; and what makes it a shop on a busy day: price cards
+ * sticking out of the shelves, promotion end caps at the runs' ends with
+ * stacked cases, the autumn harvest display by the entry, special-offer
+ * boards over the aisles, murals over the bakery and the produce, basket
+ * stacks. Shelves are empty: MallShopping stocks them from the layout.
  */
 const AISLE_TINT = { drinks: '#2f7fc1', dairy: '#5aa9d6', bakery: '#c98a4b', produce: '#4f9a4a', snacks: '#e2574c', pantry: '#d99a2b', frozen: '#6fb7d8', household: '#7a5fb3' };
 const tint = Object.fromEntries(Object.entries(AISLE_TINT).map(([k, v]) => [k, lin(v)]));
 // Lit cabinet backs: bright, cool, below the bloom threshold so they don't halo.
 const CABINET_LIGHT = new Color3(0.62, 0.68, 0.72);
 const STRIP_TILE = 0.8;
+const TALKERS = ['price198', 'price98', 'newItem', 'price298'];
+const CASES = [C.red, C.yellow, C.blue, C.green, C.orange, C.white];
+const HARVEST = { x0: -17.2, x1: -12.8, z0: 26.4, z1: 29.2 };     // the promotion stage by the entry
 
 /**
  * A fixture's own frame: u runs along it, d goes back from its front plane
@@ -42,7 +49,7 @@ class Frame {
 export function buildMarket(site, mats, signs) {
   const { cast, still } = site.zone('market');
   const doors = [];
-  const ctx = { site, cast, still, M: mats, doors };
+  const ctx = { site, cast, still, M: mats, doors, signs };
 
   // Fixture lines down the aisles, in both runs.
   for (const line of LINES) {
@@ -59,6 +66,11 @@ export function buildMarket(site, mats, signs) {
       // End panels close the run.
       for (const [a, b] of [[z0 - 0.03, z0], [z1, z1 + 0.03]]) cast.box(mats.satin, C.shelf, line.x0, 0, a, line.x1, h, b);
     }
+    // Promotion end caps where the runs meet the front and back cross aisles (not in the narrow middle one).
+    if (line.west && line.east) {
+      endCap(ctx, line, RUNS[0][0], -1, 'tokubai');
+      endCap(ctx, line, RUNS[1][1], 1, 'harvest');
+    }
   }
   // Along the back wall: bakery racks and drinks coolers.
   for (const w of BACK_WALL) {
@@ -73,11 +85,12 @@ export function buildMarket(site, mats, signs) {
   CHECKOUT_X.forEach((cx, i) => checkout(ctx, cx, i, signs));
   corral(ctx);
   marketSigns(ctx, signs);
+  promotions(ctx);
   return doors;
 }
 
 /** One side of a fixture line: shelving, chiller, cooler, bakery rack or produce crates. */
-function fixture({ site, cast, still, M, doors }, f, kind, aisle, levels, u0, u1) {
+function fixture({ site, cast, still, M, doors, signs }, f, kind, aisle, levels, u0, u1) {
   const { depth: D, h: H } = FIXTURE[kind];
   const n = Math.round((u1 - u0) / SECTION);
   const strip = (y, d = 0) => {
@@ -98,6 +111,11 @@ function fixture({ site, cast, still, M, doors }, f, kind, aisle, levels, u0, u1
     }
     boundaries((u) => f.box(cast, M.metal, C.steel, u - 0.02, 0.12, D - 0.06, u + 0.02, H, D - 0.03));
     f.box(cast, M.satin, tint[aisle], u0, H - 0.06, D - 0.12, u1, H, D);                // coloured top rail
+    // Shelf talkers: a price card sticking out into the aisle every few sections.
+    for (let k = 0; k < n; k++) {
+      if ((k + Math.round(Math.abs(f.front) * 3)) % 3) continue;
+      talker(still, signs, f, u0 + SECTION * (k + 0.5), levels[1 + (k % (levels.length - 2))], TALKERS[k % TALKERS.length]);
+    }
   } else if (kind === 'bakery') {
     f.box(cast, M.satin, C.walnut, u0, 0, D - 0.03, u1, H, D);
     f.box(cast, M.satin, C.walnut, u0, 0, 0.02, u1, levels[0] - 0.03, D - 0.03);
@@ -219,6 +237,11 @@ function checkout({ site, cast, still, M }, cx, i, signs) {
   for (const [fz, d] of [[1, 0.041], [-1, -0.041]]) still.panel(signs.material, C.white, lx, lz + d, [0, fz], 0.32, K.h + 1.42, K.h + 1.74, signs.rect(`lane${i + 1}`));
   site.collide(x0, K.z0 - 0.5, x1, K.z1, 0, K.h + 0.05);
   site.collide(cx - 1.45, K.z0 + 0.8, cx - 1.4, K.z0 + 3.4, 0, 1.1);
+  // The sweet rack at the lane's start, facing the queue.
+  const r0 = K.z1 + 0.05, r1 = K.z1 + 0.95;
+  cast.box(M.satin, C.red, cx - 0.2, 0, r0, cx + 0.2, 1.32, r1);
+  for (const [y0, y1] of [[0.18, 0.62], [0.68, 1.12]]) still.panel(signs.print, C.white, cx + 0.205, (r0 + r1) / 2, [1, 0], r1 - r0 - 0.06, y0, y1, signs.rect('candy'));
+  site.collide(cx - 0.2, r0, cx + 0.2, r1, 0, 1.32);
 }
 
 /** The cart corral in the hall: two chrome rails and an end stop (MallShopping parks the carts in its slots). */
@@ -247,9 +270,76 @@ function marketSigns({ still, M }, signs) {
   }
   still.panel(signs.material, C.white, -33, MARKET.z1 - 0.02, [0, -1], 4, 2.55, 3.55, signs.rect('deptBakery'));
   still.panel(signs.material, C.white, -18.8, MARKET.z1 - 0.02, [0, -1], 4, 2.55, 3.55, signs.rect('deptDrinks'));
-  still.panel(signs.material, C.white, MARKET.x1 - 0.02, 30.25, [-1, 0], 5, 2.2, 3.45, signs.rect('deptProduce'));
+  still.panel(signs.material, C.white, MARKET.x1 - 0.02, (RUNS[0][0] + RUNS[1][1]) / 2, [-1, 0], 5, 2.2, 3.45, signs.rect('deptProduce'));
   // Green band round the walls above the fixtures.
   still.panel(M.satin, C.green, MARKET.x0 + 0.01, (MARKET.z0 + MARKET.z1) / 2, [1, 0], MARKET.z1 - MARKET.z0, 3.75, 4.0);
   still.panel(M.satin, C.green, (MARKET.x0 + MARKET.x1) / 2, MARKET.z1 - 0.01, [0, -1], MARKET.x1 - MARKET.x0, 3.75, 4.0);
   still.panel(M.satin, C.green, MARKET.x1 - 0.01, (MARKET.z0 + MARKET.z1) / 2, [-1, 0], MARKET.z1 - MARKET.z0, 3.75, 4.0);
+}
+
+/** A price card hanging under a shelf edge, sticking out into the aisle (seen from down the aisle, both ways). */
+function talker(b, signs, f, u, y, id) {
+  const cx = f.x(u, -0.07), cz = f.z(u, -0.07), p = [f.facing[1], -f.facing[0]];
+  for (const s of [-1, 1]) b.panel(signs.print, C.white, cx + p[0] * s * 0.002, cz + p[1] * s * 0.002, [p[0] * s, p[1] * s], 0.12, y - 0.22, y - 0.06, signs.rect(id));
+}
+
+/**
+ * A promotion end cap closing a run toward a cross aisle (`s`: the aisle
+ * lies at -z or +z): a low deck of stacked cases, a header board over it.
+ */
+function endCap({ site, cast, still, M, signs }, line, z, s, sign) {
+  const d = 0.55, za = s < 0 ? z - d - 0.03 : z + 0.03, zb = s < 0 ? z - 0.03 : z + d + 0.03;
+  cast.box(M.satin, C.shelf, line.x0, 0, za, line.x1, 0.3, zb);
+  const w = line.x1 - line.x0, cols = Math.max(2, Math.round(w / 0.4)), cw = w / cols, fz = s < 0 ? za : zb;
+  for (let t = 0; t < 3; t++) {
+    for (let c = t % 2; c < cols - (t % 2); c++) {
+      const x = line.x0 + c * cw, y = 0.3 + t * 0.3;
+      cast.box(M.satin, CASES[(c + t + Math.round(-line.x0)) % CASES.length], x + 0.02, y, za + 0.04, x + cw - 0.02, y + 0.28, zb - 0.04);
+      still.panel(M.matte, C.white, x + cw / 2, fz - s * 0.03, [0, s], cw * 0.6, y + 0.08, y + 0.2);
+    }
+  }
+  for (const x of [line.x0 + 0.06, line.x1 - 0.06]) cast.box(M.metal, C.steel, x - 0.02, 0.3, Math.min(fz - s * 0.06, fz - s * 0.02), x + 0.02, 2.25, Math.max(fz - s * 0.06, fz - s * 0.02));
+  cast.box(M.satin, C.red, line.x0, 1.85, Math.min(fz - s * 0.06, fz - s * 0.02), line.x1, 2.3, Math.max(fz - s * 0.06, fz - s * 0.02));
+  still.panel(signs.material, C.white, (line.x0 + line.x1) / 2, fz - s * 0.008, [0, s], Math.min(w - 0.1, 1.15), 1.88, 2.27, signs.rect(sign));
+  site.collide(line.x0, za, line.x1, zb, 0, 1.2);
+}
+
+/**
+ * The shop on a busy day: the autumn harvest stage by the entry, special-
+ * offer boards hanging over the aisles' middle, murals over the bakery and
+ * the produce wall, basket stacks at the entry.
+ */
+function promotions({ site, cast, still, M, signs }) {
+  // Harvest stage: a wooden deck, crates of pumpkins, sweet potatoes and apples, the fair's board over it.
+  const H = HARVEST, hx = (H.x0 + H.x1) / 2, hz = (H.z0 + H.z1) / 2;
+  cast.box(M.wood, C.white, H.x0, 0, H.z0, H.x1, 0.25, H.z1);
+  const fill = [[C.orange, 0.13, false], [lin('#7a3b6e'), 0.09, true], [C.red, 0.075, false]];
+  for (let i = 0; i < 6; i++) {
+    const cx = H.x0 + 0.75 + (i % 3) * 1.45, cz = H.z0 + 0.7 + Math.floor(i / 3) * 1.4, [color, r, long] = fill[i % 3];
+    cast.box(M.wood, C.white, cx - 0.6, 0.25, cz - 0.5, cx + 0.6, 0.55, cz + 0.5);
+    for (let k = 0; k < 9; k++) {
+      const px = cx - 0.4 + (k % 3) * 0.4, pz = cz - 0.32 + Math.floor(k / 3) * 0.32;
+      cast.sphere(M.satin, color, px, 0.55 + r * 0.6, pz, r, 0.75, 6);
+      if (long) cast.sphere(M.satin, color, px + r * 0.6, 0.55 + r * 0.5, pz, r * 0.8, 0.75, 5);
+    }
+  }
+  for (const x of [H.x0 + 0.2, H.x1 - 0.2]) cast.cylinder(M.metal, C.steel, x, 0.25, hz, 0.025, 2.2, 6);
+  cast.box(M.satin, C.orange, H.x0 + 0.15, 1.75, hz - 0.03, H.x1 - 0.15, 2.45, hz + 0.03);
+  for (const f of [-1, 1]) still.panel(signs.material, C.white, hx, hz + f * 0.032, [0, f], H.x1 - H.x0 - 0.4, 1.78, 2.42, signs.rect('harvest'));
+  site.collide(H.x0, H.z0, H.x1, H.z1, 0, 0.6);
+  // Special offers over the middle cross aisle.
+  const mz = (RUNS[0][1] + RUNS[1][0]) / 2;
+  for (const a of AISLE_LANES.slice(0, 5)) {
+    for (const f of [-1, 1]) still.panel(signs.material, C.white, a.x, mz + f * 0.006, [0, f], 1.1, 2.75, 3.16, signs.rect('tokubai'));
+    for (const dx of [-0.45, 0.45]) still.rod(M.metal, C.steel, [a.x + dx, 3.16, mz], [a.x + dx, CEILING, mz], 0.005, 3);
+  }
+  // Murals over the bakery and the produce wall.
+  still.panel(signs.print, C.white, -33, MARKET.z1 - 0.02, [0, -1], 3.84, 4.1, 5.3, signs.rect('muralBakery'));
+  still.panel(signs.print, C.white, PRODUCE_WALL_X - 0.02, (RUNS[0][0] + RUNS[1][1]) / 2, [-1, 0], 3.84, 4.1, 5.3, signs.rect('muralProduce'));
+  // Basket stacks by the entry.
+  for (const z of [24.3, 24.95]) {
+    for (let k = 0; k < 7; k++) cast.box(M.satin, C.red, -4.2, 0.03 + k * 0.075, z - 0.24, -3.7, 0.1 + k * 0.075, z + 0.24);
+    cast.box(M.metal, C.steel, -4.25, 0, z - 0.27, -3.65, 0.03, z + 0.27);
+  }
+  site.collide(-4.25, 24.03, -3.65, 25.22, 0, 0.6);
 }

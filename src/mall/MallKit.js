@@ -20,6 +20,8 @@ export const C = Object.fromEntries(Object.entries({
   frame: '#3a3d42', steel: '#b9bec4', dark: '#24272c', black: '#141518', wood: '#b98552', oak: '#d6b58a', walnut: '#6b4a32',
   leaf: '#4f8a3c', soil: '#4a3a2c', yellow: '#f2c230', blue: '#2f6fb3', red: '#d2463c', grey: '#8d9096', concrete: '#b9b4ab',
   rubber: '#2a2b2e', shelf: '#dddad3', light: '#fff6e8', cold: '#e9f6ff',
+  orange: '#e8892f', purple: '#5b3b8a', teal: '#2a9d8f', cream: '#f4ead8', stone: '#c9bfb1', charcoal: '#3b3f46',
+  gold: '#c9a227', water: '#4f9fc4', maroon: '#7a2e2e', tinted: '#2c3a4a', sky: '#a9cde6',
 }).map(([k, v]) => [k, lin(v)]));
 
 export class MallMaterials {
@@ -136,6 +138,35 @@ export class Batch {
     }
     // Babylon's front face winds against u × v in this right-handed scene.
     g.idx.push(b, b + 2, b + 1, b, b + 3, b + 2);
+  }
+
+  /** One triangle a, b, c ([x, y, z]), its front facing (b − a) × (c − a); uv metres on its plane. */
+  tri(mat, color, a, b, c) {
+    const g = this._g(mat), i = g.pos.length / 3;
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz) || 1;
+    const flat = Math.abs(ny) > Math.max(Math.abs(nx), Math.abs(nz));
+    for (const p of [a, b, c]) {
+      g.pos.push(p[0], p[1], p[2]);
+      g.nrm.push(nx / l, ny / l, nz / l);
+      g.uv.push(flat ? p[0] : p[0] + p[2], flat ? p[2] : p[1]);
+      g.col.push(color.r, color.g, color.b, 1);
+    }
+    g.idx.push(i, i + 2, i + 1);
+  }
+
+  /**
+   * A sloped slab: its top runs along x from (xa, ya) to (xb, yb), t thick
+   * (vertically), across z0..z1 — ramps, escalator trusses.
+   */
+  slope(mat, color, xa, ya, xb, yb, z0, z1, t) {
+    const dx = xb - xa, dy = yb - ya, dz = z1 - z0;
+    this.face(mat, color, [xa, ya, z0], [0, 0, dz], [dx, dy, 0]);
+    this.face(mat, color, [xa, ya - t, z0], [dx, dy, 0], [0, 0, dz]);
+    this.face(mat, color, [xa, ya - t, z0], [0, t, 0], [dx, dy, 0]);
+    this.face(mat, color, [xa, ya - t, z1], [dx, dy, 0], [0, t, 0]);
+    this.face(mat, color, [xa, ya - t, z0], [0, 0, dz], [0, t, 0]);
+    this.face(mat, color, [xb, yb - t, z0], [0, t, 0], [0, 0, dz]);
   }
 
   /** Axis-aligned box between two corners (no bottom face when it stands on the floor). */

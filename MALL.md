@@ -81,10 +81,34 @@ layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
     fittingRooms: [{ id, door: { x, z, yaw }, inside: { x, z, yaw }, mirror: { x, y, z, yaw }, hook: [x,y,z], curtain: 'nodeName' }],
     till: { stand: { x, z, yaw }, register: [x,y,z], cashier: { x, z, yaw } },
   },
-  nav: { nodes: [[x, z], …], links: [[a, b], …] },   // walkable graph (shoppers, carts)
+  nav: { nodes: [[x, z], …], links: [[a, b], …] },   // walkable graph (shoppers, carts): lot, courts, concourse, both shops
   lot: { bays: [{ x, z, yaw }], walkways: [{ x0, z0, x1, z1 }] },
+  concourse: {
+    zone: { x0, z0, x1, z1 },                          // the ground floor's walk between the shop row and the anchors
+    atrium: { x0, z0, x1, z1 },                        // its middle, open to the skylight (fountain, escalators, lift, trees)
+    storefronts: [{ kind, x, z, yaw, w }],             // a spot before each small shop's window, facing it (window shopping)
+  },
 }
 ```
+
+## The site (MallPlan, world)
+
+A two-storey mall (AEON / LaLaport style) on a parking lot. From the lot,
+two glazed entrance portals (automatic doors, canopies) lead through
+entrance courts in the **shop row** — nine small shops whose fronts face the
+concourse: a bookshop, electronics, a drugstore, a 100-yen shop, a bakery
+café (glazed to the lot too), toys, shoes, a ramen bar, a game centre —
+into the **concourse**: a terrazzo walk with the upper floor's galleries
+round an **atrium** under a glazed lantern (escalators to a bridge, a glass
+lift, a fountain under a ring light, trees, the information desk, a crêpe
+stand, capsule toys, photo booths, vending machines, the season's
+banners). The **anchors** open onto it from the far side: Hikari Fresh
+Market and Sakura Style, the service front (restrooms) between them. The
+upper floor's shops are seen, not entered; she walks the ground floor.
+The small shops are closed fronts (glass, a lit and furnished room
+behind); nothing in them can be taken. Everything standing on the
+concourse floor is listed by `concourseObstacles()` (collisions; the walk
+graph keeps 0.45 m clear of it, tested in `scripts/mall-plan.test.mjs`).
 
 ## Rules
 

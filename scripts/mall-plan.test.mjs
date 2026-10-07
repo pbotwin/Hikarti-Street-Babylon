@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planLayout, parkedCars, siteTransform } from '../src/mall/MallPlan.js';
+import { planLayout, parkedCars, siteTransform, concourseObstacles } from '../src/mall/MallPlan.js';
 import { AISLES, RACKS } from '../src/mall/MallCatalog.js';
 
 // Hikari Mall's layout is the contract the shopping, fashion and shopper
@@ -10,7 +10,7 @@ const lay = planLayout(origin);
 const inRect = (r, x, z, m = 0) => x >= r.x0 - m && x <= r.x1 + m && z >= r.z0 - m && z <= r.z1 + m;
 
 test('layout has every MALL.md field', () => {
-  for (const k of ['origin', 'bounds', 'building', 'spawn', 'car', 'exit', 'entrances', 'cartCorrals', 'grocery', 'checkouts', 'fashion', 'nav', 'lot']) assert.ok(lay[k], k);
+  for (const k of ['origin', 'bounds', 'building', 'spawn', 'car', 'exit', 'entrances', 'cartCorrals', 'grocery', 'checkouts', 'fashion', 'nav', 'lot', 'concourse']) assert.ok(lay[k], k);
   assert.equal(lay.car.model, 'car_kei_pink');
   assert.ok(lay.building.ceilingY > lay.building.floorY);
 });
@@ -71,4 +71,22 @@ test('walk graph is one connected piece with no zero-length links', () => {
   while (stack.length) for (const n of adj[stack.pop()]) if (!seen.has(n)) { seen.add(n); stack.push(n); }
   assert.equal(seen.size, nodes.length);
   for (const [x, z] of nodes) assert.ok(inRect(lay.bounds, x, z));
+});
+
+test('the concourse: shops along it, the walk graph on it and clear of what stands there', () => {
+  const C = lay.concourse;
+  assert.ok(C.storefronts.length >= 8);
+  for (const f of C.storefronts) assert.ok(inRect(C.zone, f.x, f.z), f.kind);
+  const { nodes, links } = lay.nav;
+  assert.ok(nodes.filter(([x, z]) => inRect(C.zone, x, z)).length >= 20, 'the graph covers the concourse');
+  // Every walk keeps 0.45 m (a shopper, a cart's half width) from everything standing on the concourse floor.
+  const T = siteTransform(origin), rects = concourseObstacles().map((o) => T.rect(o));
+  const gap = (r, x, z) => Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
+  for (const [a, b] of links) {
+    const [x0, z0] = nodes[a], [x1, z1] = nodes[b], n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.1);
+    for (let i = 0; i <= n; i++) {
+      const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
+      for (const r of rects) assert.ok(gap(r, x, z) > 0.45, `link ${a}-${b} passes ${gap(r, x, z).toFixed(2)} m from an obstacle`);
+    }
+  }
 });

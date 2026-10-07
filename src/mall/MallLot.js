@@ -24,7 +24,8 @@ const PAINT_Y = 0.008;
 const FAR = 420;               // the fields reach the fog
 const _q = new Quaternion();
 
-export async function buildLot(site, mats, signs, vehicles) {
+/** `indoorTrees`: more trees ([x, z, scale]) for the building's planters, as instances of the same tree. */
+export async function buildLot(site, mats, signs, vehicles, indoorTrees = []) {
   const { cast, still } = site.zone('lot');
   const M = mats;
 
@@ -55,10 +56,12 @@ export async function buildLot(site, mats, signs, vehicles) {
     lamps.push([1.4, z], [-1.4, z]);
     for (const s of [-1, 1]) lamps.push([s * (END_ISLAND.x0 + END_ISLAND.x1) / 2, z]);
   }
-  for (const x of [-34, -20, 20, 34]) lamps.push([x, SIDEWALK.z0 + 0.5]);
+  const sidewalkLamps = [-34, -20, 20, 34].map((x) => [x, SIDEWALK.z0 + 0.5]);
+  lamps.push(...sidewalkLamps);
   for (const s of [-1, 1]) for (const z of [-12, -30, -46]) lamps.push([s * (LANE_X + 4.3), z]);
   for (const [x, z] of lamps) lamp(cast, still, M, x, z, Math.abs(x) > LANE_X ? -Math.sign(x) : 0);
   for (const [x, z] of lamps) site.collide(x - 0.12, z - 0.12, x + 0.12, z + 0.12, 0, 7.5, { camera: false });
+  sidewalkLamps.forEach(([x, z], i) => banners(cast, still, M, signs, x, z, i));
 
   const crossings = [-26.4, -8.8, 0, 8.8, 26.4, ...ENTRANCES.map((e) => e.x)];
   for (let x = SIDEWALK.x0 + 1; x < SIDEWALK.x1 - 0.5; x += 3.6) {
@@ -83,6 +86,7 @@ export async function buildLot(site, mats, signs, vehicles) {
   trees.push(...planters);
   for (let z = 6; z < SITE.z1 - 4; z += 9) for (const s of [-1, 1]) trees.push([s * 49, z]);
   for (let x = SITE.x0 + 6; x < EXIT_ROAD.x0 - 3; x += 10) trees.push([x, ASPHALT.z0 - 4.5]);
+  trees.push(...indoorTrees);
   const forest = await treeModel(site.scene, trees, site.root);
   const cars = new MallCars(site, vehicles);
   return {
@@ -136,6 +140,16 @@ function lamp(cast, still, M, x, z, side) {
     cast.rod(M.metal, C.frame, [x, H - 0.1, z], [hx, H, z], 0.04, 6);
     cast.box(M.metal, C.frame, hx - 0.35, H - 0.08, z - 0.18, hx + 0.35, H + 0.06, z + 0.18);
     still.flat(M.glow, C.light, hx - 0.3, z - 0.14, hx + 0.3, z + 0.14, H - 0.085, true);
+  }
+}
+
+/** A pair of the season's banners on a lamp post, on arms either side of it, printed both faces. */
+function banners(cast, still, M, signs, x, z, i) {
+  const ids = i % 2 ? ['halloween', 'autumn'] : ['autumn', 'halloween'];
+  for (const [s, id] of [[-1, ids[0]], [1, ids[1]]]) {
+    const bx = x + s * 0.4;
+    for (const y of [3.35, 5.0]) cast.rod(M.metal, C.frame, [x, y, z], [x + s * 0.7, y, z], 0.015, 4);
+    for (const f of [-1, 1]) still.panel(signs.material, C.white, bx, z + f * 0.006, [0, f], 0.55, 3.4, 4.95, signs.rect(id));
   }
 }
 
@@ -196,8 +210,8 @@ async function treeModel(scene, spots, root) {
   container.addAllToScene();
   const rnd = mulberry32(77);
   const matrices = new Float32Array(spots.length * 16);
-  spots.forEach(([x, z], i) => {
-    const yaw = rnd() * Math.PI * 2, s = 0.8 + rnd() * 0.35;
+  spots.forEach(([x, z, scale = 1], i) => {
+    const yaw = rnd() * Math.PI * 2, s = (0.8 + rnd() * 0.35) * scale;
     _q.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
     writeTRS(matrices, i * 16, x, 0, z, _q, s, s, s);
   });

@@ -1,13 +1,16 @@
 import { Mesh, TransformNode, VertexData } from '@babylonjs/core';
-import { C, planter } from './MallKit.js';
+import { C, lin, planter } from './MallKit.js';
 import {
-  BOUTIQUE, SECTION, FLOOR_RACKS, RAIL, WALL_RACKS, SHOE_WALL, MIRROR_WALL, FITTING, TILL, WINDOW_STAGES, STAGE,
+  BOUTIQUE, SECTION, FLOOR_RACKS, RAIL, WALL_RACKS, SHOE_WALL, MIRROR_WALL, FITTING, TILL, WINDOW_STAGES, STAGE, CEILING,
 } from './MallPlan.js';
 
 /**
  * Sakura Style, the clothing store: chrome floor rails and wall rails (the
- * racks), the shoe wall, the mirror wall, window stages with mannequins,
- * three fitting rooms with curtains and mirrors, and the till. Racks are
+ * racks), the shoe wall, the mirror wall, window stages with dressed
+ * mannequins, three fitting rooms with curtains and mirrors, the till and
+ * an accessories counter; display tables with folded clothes, rugs, track
+ * lights over the racks and pendants over the tables, campaign posters.
+ * Racks are
  * empty: MallFashion hangs the clothes on the layout's hooks. Each fitting
  * room's curtain hangs from its own node (named in the layout): at its
  * rail's west end, the fabric running along +x; MallFashion draws it by
@@ -54,19 +57,20 @@ export function buildBoutique(site, mats, signs) {
   cast.box(M.metal, C.frame, MW.x0 - 0.05, 2.6, mz - 0.04, MW.x1 + 0.05, 2.65, mz);
   for (let x = MW.x0; x <= MW.x1 + 1e-6; x += (MW.x1 - MW.x0) / 6) cast.box(M.metal, C.frame, x - 0.025, 0.15, mz - 0.04, x + 0.025, 2.6, mz);
   // A cheval mirror among the racks.
-  const cm = { x: 19.6, z: 24.2 };
+  const cm = { x: 19.6, z: 37.2 };
   still.panel(M.mirror, C.white, cm.x, cm.z - 0.03, [0, -1], 0.6, 0.25, 1.85);
   cast.box(M.satin, C.oak, cm.x - 0.34, 0.2, cm.z - 0.02, cm.x + 0.34, 1.9, cm.z + 0.03);
   cast.box(M.satin, C.oak, cm.x - 0.3, 0, cm.z - 0.3, cm.x + 0.3, 0.05, cm.z + 0.3);
   site.collide(cm.x - 0.35, cm.z - 0.3, cm.x + 0.35, cm.z + 0.3, 0, 1.9);
 
-  // Window stages with mannequins facing the hall; posters.
+  // Window stages with dressed mannequins facing the concourse; posters.
+  let n = 0;
   for (const st of WINDOW_STAGES) {
     cast.box(M.gloss, C.snow, st.x0, 0, STAGE.z0, st.x1, STAGE.h, STAGE.z1);
     site.collide(st.x0, STAGE.z0, st.x1, STAGE.z1, 0, STAGE.h);
-    for (const x of st.mannequins) mannequin(cast, M, x, (STAGE.z0 + STAGE.z1) / 2, STAGE.h);
+    for (const x of st.mannequins) mannequin(cast, M, x, (STAGE.z0 + STAGE.z1) / 2, STAGE.h, OUTFITS[n++ % OUTFITS.length]);
   }
-  still.panel(signs.material, C.white, BOUTIQUE.x0 + 0.02, 22.5, [1, 0], 1.0, 1.0, 2.5, signs.rect('season'));
+  still.panel(signs.material, C.white, BOUTIQUE.x0 + 0.02, 35.5, [1, 0], 1.0, 1.0, 2.5, signs.rect('season'));
   still.panel(signs.material, C.white, 15.4, BOUTIQUE.z0 + 2.6, [0, -1], 0.8, 0.9, 2.1, signs.rect('sale'));
   still.panel(signs.material, C.white, 15.4, BOUTIQUE.z0 + 2.62, [0, 1], 0.8, 0.9, 2.1, signs.rect('sale'));
   cast.box(M.metal, C.frame, 15.0, 0, BOUTIQUE.z0 + 2.55, 15.8, 0.04, BOUTIQUE.z0 + 2.67);
@@ -74,28 +78,92 @@ export function buildBoutique(site, mats, signs) {
 
   // Display tables with flowers, a bench by the fitting rooms, plants in the corners.
   for (const x of [27, 31.5, 36]) {
-    const z = 24.1;
+    const z = 37.1;
     cast.box(M.satin, C.oak, x - 0.8, 0.72, z - 0.4, x + 0.8, 0.76, z + 0.4);
     for (const [dx, dz] of [[-0.72, -0.32], [0.72, -0.32], [-0.72, 0.32], [0.72, 0.32]]) cast.box(M.metal, C.snow, x + dx - 0.02, 0, z + dz - 0.02, x + dx + 0.02, 0.72, z + dz + 0.02);
     cast.cylinder(M.gloss, C.snow, x + 0.45, 0.76, z, 0.08, 0.22, 12, 0.06);
     cast.sphere(M.matte, C.pink, x + 0.45, 1.06, z, 0.13, 0.8, 8);
+    folded(cast, M, x - 0.3, z, n++);
     site.collide(x - 0.8, z - 0.4, x + 0.8, z + 0.4, 0, 0.76);
   }
-  cast.box(M.satin, C.blush, 9, 0.12, 23.6, 11.6, 0.45, 24.2);
-  cast.box(M.metal, C.frame, 9.1, 0, 23.65, 11.5, 0.12, 24.15);
-  site.collide(9, 23.6, 11.6, 24.2, 0, 0.45, { camera: false });
-  for (const [x, z] of [[38.9, 11.3], [6.7, 22.5]]) {
+  cast.box(M.satin, C.blush, 9, 0.12, 36.6, 11.6, 0.45, 37.2);
+  cast.box(M.metal, C.frame, 9.1, 0, 36.65, 11.5, 0.12, 37.15);
+  site.collide(9, 36.6, 11.6, 37.2, 0, 0.45, { camera: false });
+  for (const [x, z] of [[38.9, 24.3], [6.7, 35.5]]) {
     planter(cast, M, x, z, 0.4, 0.45);
     site.collide(x - 0.4, z - 0.4, x + 0.4, z + 0.4, 0, 0.45, { camera: false });
   }
 
+  dressing(site, cast, still, M, signs);
   till(site, cast, still, M, signs);
   const curtains = fittingRooms(site, cast, still, M, signs);
   return curtains;
 }
 
-/** A display mannequin (abstract, gloss white) standing at (x, z) on a floor at y, facing the hall. */
-function mannequin(b, M, x, z, y) {
+/** Mannequins' outfits: coat (with its sleeves) and skirt colours. */
+const OUTFITS = [['#7a2e2e', '#3b3f46'], ['#efe6d0', '#26324a'], ['#e8892f', '#5b6475'], ['#f6c1d1', '#efe6d0'], ['#3b3f46', '#8a3b2e']].map((o) => o.map(lin));
+const STACKS = ['#26324a', '#efe6d0', '#7a2e2e', '#9fb7d6', '#e8892f', '#f6c1d1', '#3b3f46', '#6b8f5e'].map(lin);
+
+/** Folded clothes in three stacks on a table at (x, z), colours from `k`. */
+function folded(b, M, x, z, k) {
+  for (let i = 0; i < 3; i++) {
+    const c = STACKS[(k * 3 + i) % STACKS.length], sx = x - 0.35 + i * 0.35;
+    for (let j = 0; j < 4; j++) b.box(M.fabric, c, sx - 0.15, 0.76 + j * 0.045, z - 0.2, sx + 0.15, 0.8 + j * 0.045, z + 0.2);
+  }
+}
+
+/**
+ * The room's dressing: track lights over the rack rows, drum pendants over
+ * the tables, rugs, campaign posters over the mirrors and the shoe wall,
+ * an accessories table (hats, bags) by the door, a jewellery case.
+ */
+function dressing(site, cast, still, M, signs) {
+  const y = CEILING - 0.08;
+  for (const z of [FLOOR_RACKS[0][2], FLOOR_RACKS[4][2]]) {
+    still.box(M.metal, C.black, 21, y, z - 0.03, 37.5, y + 0.04, z + 0.03);
+    for (let x = 21.6; x < 37.3; x += 1.5) {
+      still.rod(M.metal, C.black, [x, y, z], [x, y - 0.18, z - 0.12], 0.012, 4);
+      cast.rod(M.metal, C.black, [x, y - 0.18, z - 0.12], [x, y - 0.3, z - 0.3], 0.05, 8);
+      still.cylinder(M.glow, C.light, x, y - 0.33, z - 0.33, 0.035, 0.01, 8);
+    }
+  }
+  for (const x of [27, 31.5, 36]) {
+    still.rod(M.metal, C.black, [x, 3.0, 37.1], [x, CEILING, 37.1], 0.005, 3);
+    still.cylinder(M.fabric, C.cream, x, 2.75, 37.1, 0.32, 0.26, 20);
+    still.flat(M.glow, C.light, x - 0.2, 36.9, x + 0.2, 37.3, 2.76, true);
+  }
+  // Rugs (a few millimetres thick, so they never fight the floor).
+  for (const [x0, z0, x1, z1, c] of [[25.6, 36.2, 37.4, 38.0, '#d8c8b4'], [8.6, 35.8, 12.0, 38.4, '#e7c7cf']]) {
+    still.box(M.fabric, lin(c), x0, 0.01, z0, x1, 0.022, z1);
+  }
+  // Campaign posters over the mirror wall and the shoe wall.
+  for (const x of [28, 32, 36]) {
+    cast.box(M.metal, C.frame, x - 0.55, 2.95, BOUTIQUE.z1 - 0.05, x + 0.55, 4.55, BOUTIQUE.z1);
+    still.panel(signs.material, C.white, x, BOUTIQUE.z1 - 0.062, [0, -1], 1.0, 3.0, 4.5, signs.rect('fashionPoster'));
+  }
+  still.panel(signs.material, C.white, (SHOE_WALL.x0 + SHOE_WALL.x0 + SHOE_WALL.n * SECTION) / 2, BOUTIQUE.z1 - 0.02, [0, -1], 5.2, 2.5, 3.4, signs.rect('style'));
+  // Accessories by the door: a round table with hats and folded bags.
+  const ax = 14.2, az = 27.0;
+  cast.cylinder(M.satin, C.oak, ax, 0, az, 0.12, 0.8, 10);
+  cast.cylinder(M.satin, C.oak, ax, 0.8, az, 0.55, 0.04, 20);
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2 + 0.4, hx = ax + Math.cos(a) * 0.32, hz = az + Math.sin(a) * 0.32;
+    cast.cylinder(M.fabric, STACKS[i + 1], hx, 0.84, hz, 0.17, 0.02, 14);
+    cast.sphere(M.fabric, STACKS[i + 1], hx, 0.86, hz, 0.1, 0.8, 8);
+  }
+  cast.box(M.satin, C.walnut, ax - 0.12, 0.84, az - 0.08, ax + 0.12, 1.02, az + 0.08);
+  site.collide(ax - 0.55, az - 0.55, ax + 0.55, az + 0.55, 0, 0.84);
+  // The jewellery case: a white counter with a glass top, small lit things inside.
+  const j0 = 8.2, j1 = 11.4, jz0 = 25.7, jz1 = 26.4;
+  cast.box(M.gloss, C.snow, j0, 0, jz0, j1, 0.85, jz1);
+  still.flat(M.satin, C.blush, j0 + 0.05, jz0 + 0.05, j1 - 0.05, jz1 - 0.05, 0.851);
+  for (let i = 0; i < 10; i++) still.box(M.chrome, i % 2 ? C.gold : C.steel, j0 + 0.2 + i * 0.3, 0.851, jz0 + 0.25, j0 + 0.28 + i * 0.3, 0.87, jz0 + 0.35);
+  still.box(M.glass, C.white, j0, 0.85, jz0, j1, 1.12, jz1);
+  site.collide(j0, jz0, j1, jz1, 0, 1.12);
+}
+
+/** A display mannequin (abstract, gloss white) standing at (x, z) on a floor at y, facing the concourse, in a coat and skirt. */
+function mannequin(b, M, x, z, y, [coat, skirt]) {
   const w = C.snow;
   b.cylinder(M.metal, C.steel, x, y, z, 0.2, 0.02, 20);
   b.cylinder(M.metal, C.steel, x, y, z - 0.05, 0.012, 0.7, 6);
@@ -106,6 +174,11 @@ function mannequin(b, M, x, z, y) {
   b.cylinder(M.gloss, w, x, y + 1.42, z, 0.045, 0.14, 8);
   b.sphere(M.gloss, w, x, y + 1.66, z - 0.01, 0.105, 1.25, 12);
   for (const s of [-1, 1]) b.rod(M.gloss, w, [x + s * 0.2, y + 1.4, z], [x + s * 0.27, y + 0.86, z - 0.04], 0.04, 8);
+  // The outfit: a coat from the shoulders to the hips with its sleeves, a flared skirt.
+  b.cylinder(M.fabric, coat, x, y + 0.82, z, 0.21, 0.66, 14, 0.2);
+  b.sphere(M.fabric, coat, x, y + 1.42, z, 0.22, 0.5, 10);
+  for (const s of [-1, 1]) b.rod(M.fabric, coat, [x + s * 0.2, y + 1.4, z], [x + s * 0.265, y + 0.95, z - 0.035], 0.055, 8);
+  b.cylinder(M.fabric, skirt, x, y + 0.42, z, 0.29, 0.44, 16, 0.19);
 }
 
 /** The till: a counter with register and screen, a back shelf for bags, the logo behind. */
@@ -115,7 +188,7 @@ function till(site, cast, still, M, signs) {
   cast.box(M.satin, C.dark, T.x0 + 0.04, 0, T.z0 + 0.04, T.x1 - 0.04, 0.08, T.z1 - 0.04);
   still.panel(M.satin, C.pink, T.x1 + 0.006, mid, [1, 0], T.z1 - T.z0, 0.2, T.h - 0.12);
   cast.box(M.satin, C.oak, T.x0 - 0.04, T.h - 0.04, T.z0 - 0.04, T.x1 + 0.04, T.h, T.z1 + 0.04);
-  const rz = 17.4, rx = (T.x0 + T.x1) / 2;
+  const rz = 30.4, rx = (T.x0 + T.x1) / 2;
   cast.box(M.gloss, C.dark, rx - 0.2, T.h, rz - 0.18, rx + 0.12, T.h + 0.08, rz + 0.18);
   cast.box(M.gloss, C.dark, rx - 0.2, T.h + 0.08, rz - 0.02, rx - 0.16, T.h + 0.3, rz + 0.02);
   cast.box(M.gloss, C.dark, rx - 0.24, T.h + 0.28, rz - 0.2, rx - 0.2, T.h + 0.52, rz + 0.2);
