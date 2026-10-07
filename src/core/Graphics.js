@@ -1,6 +1,6 @@
 import {
   Vector3, Color3, Color4, DirectionalLight, HemisphericLight, ShadowGenerator,
-  DefaultRenderingPipeline, SSAO2RenderingPipeline, SSRRenderingPipeline, ReflectionProbe, ImageProcessingConfiguration, ColorCurves,
+  DefaultRenderingPipeline, ReflectionProbe, ImageProcessingConfiguration, ColorCurves,
   Constants, RenderTargetTexture,
 } from '@babylonjs/core';
 import { HDRFiltering } from '@babylonjs/core/Materials/Textures/Filtering/hdrFiltering.js';
@@ -15,8 +15,6 @@ import { ToonPlugin } from '../player/Vrm.js';
  *  - a warm low sun with the original's shadow map: one ±22 m square that
  *    follows her, snapped to texels, holding only the casters inside it
  *  - HDR post: MSAA, bloom, ACES tone mapping, contrast, vignette, sharpen
- *  - Ultra only, beyond the original: SSAO2 contact shadows and screen-space
- *    reflections
  * Presets scale shadow resolution and softness, post effects and render scale.
  */
 // The original's shadow square (half size, m) and how far behind it the light sits.
@@ -24,10 +22,10 @@ const SHADOW_EXTENT = 22;
 const SHADOW_BACK = 70;
 
 export const PRESETS = {
-  low: { label: 'Low', scale: 0.75, shadow: 1024, softShadows: false, ssao: false, ssr: false, msaa: 1, fxaa: true, bloom: false },
-  medium: { label: 'Medium', scale: 1, shadow: 2048, softShadows: false, ssao: false, ssr: false, msaa: 2, fxaa: false, bloom: true },
-  high: { label: 'High', scale: 1, shadow: 2048, softShadows: true, ssao: false, ssr: false, msaa: 4, fxaa: false, bloom: true },
-  ultra: { label: 'Ultra', scale: 1, shadow: 4096, softShadows: true, ssao: true, ssr: true, msaa: 4, fxaa: false, bloom: true },
+  low: { label: 'Low', scale: 0.75, shadow: 1024, softShadows: false, msaa: 1, fxaa: true, bloom: false },
+  medium: { label: 'Medium', scale: 1, shadow: 2048, softShadows: false, msaa: 2, fxaa: false, bloom: true },
+  high: { label: 'High', scale: 1, shadow: 2048, softShadows: true, msaa: 4, fxaa: false, bloom: true },
+  ultra: { label: 'Ultra', scale: 1, shadow: 4096, softShadows: true, msaa: 4, fxaa: false, bloom: true },
 };
 
 /** Preset for this device from the GPU name, platform and memory. */
@@ -169,22 +167,9 @@ export class Graphics {
     this._scaleDirty = true;
   }
 
-  /** Ambient occlusion and reflections: what a GPU that can't keep up drops first. */
+  /** Light rays: what a GPU that can't keep up drops first (AdaptivePerformance, shops). */
   get raysAllowed() { return this._raysAllowed; }
-  set raysAllowed(on) {
-    if (on === this._raysAllowed) return;
-    this._raysAllowed = on;
-    this._attachScreenEffects();
-  }
-
-  _attachScreenEffects() {
-    const manager = this.scene.postProcessRenderPipelineManager;
-    for (const pipe of [this.ssao, this.ssr]) {
-      if (!pipe) continue;
-      if (this._raysAllowed) manager.attachCamerasToRenderPipeline(pipe.name, this.camera);
-      else manager.detachCamerasFromRenderPipeline(pipe.name, this.camera);
-    }
-  }
+  set raysAllowed(on) { this._raysAllowed = on; }
 
   /** Draw calls in the last rendered frame. */
   drawCalls() { return this._calls; }
@@ -293,35 +278,6 @@ export class Graphics {
     pipe.imageProcessingEnabled = true;
     this.pipeline = pipe;
 
-    this.ssao?.dispose();
-    this.ssao = null;
-    if (p.ssao) {
-      const ssao = new SSAO2RenderingPipeline('ssao', scene, { ssaoRatio: tier === 'ultra' ? 1 : 0.5, blurRatio: 1 }, [camera], true);
-      ssao.radius = 1.2;
-      ssao.totalStrength = 1.1;
-      ssao.base = 0.12;
-      ssao.samples = tier === 'ultra' ? 24 : 12;
-      ssao.maxZ = 120;
-      ssao.expensiveBlur = tier === 'ultra';
-      this.ssao = ssao;
-    }
-
-    this.ssr?.dispose();
-    this.ssr = null;
-    if (p.ssr) {
-      const ssr = new SSRRenderingPipeline('ssr', scene, [camera], false, Constants.TEXTURETYPE_UNSIGNED_BYTE);
-      ssr.strength = 0.6;
-      ssr.reflectionSpecularFalloffExponent = 2.5;
-      ssr.maxDistance = 60;
-      ssr.step = tier === 'ultra' ? 1 : 2;
-      ssr.thickness = 0.4;
-      ssr.blurDispersionStrength = 0.03;
-      ssr.roughnessFactor = 0.2;
-      ssr.selfCollisionNumSkip = 2;
-      ssr.enableAutomaticThicknessComputation = false;
-      this.ssr = ssr;
-    }
-    if (!this._raysAllowed) this._attachScreenEffects();
   }
 
   /** Meshes that cast shadows (kept across preset changes). */
