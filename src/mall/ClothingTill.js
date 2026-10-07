@@ -45,6 +45,8 @@ export class ClothingTill {
       r.blinkSeed = Math.random();
       r.root.position.set(c.x, ctx.layout.building?.floorY ?? 0, c.z);
       r.root.rotation.y = c.yaw;
+      // Standing pose from the start (update() only poses within 30 m).
+      animateResident(r, 0, { gender: 'f' });
       ctx.graphics.addCasters(r.casters);
     } catch (e) { console.warn('fashion cashier', e); }
   }

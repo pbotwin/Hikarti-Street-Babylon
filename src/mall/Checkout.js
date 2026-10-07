@@ -42,6 +42,9 @@ export class Checkouts {
       r.gender = look.gender;
       r.root.position.set(l.spot.cashier.x, 0, l.spot.cashier.z);
       r.root.rotation.y = l.spot.cashier.yaw;
+      // Standing pose from the start: update() only poses within 30 m, and
+      // until she came that close the cashier stood in the model's T-pose.
+      animateResident(r, 0, { gender: r.gender });
       graphics.addCasters(r.casters);
       l.cashier = r;
     }));

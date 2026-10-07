@@ -290,11 +290,23 @@ async function retoneMaterial(mat, hex) {
   const m = mat.clone(`${mat.name}|${hex}`);
   mat.albedoTexture = src;
   m.albedoTexture = map;
+  // The map is re-toned to the target itself: the model's own colour factor
+  // would tint it again (boy_uniform's hair factors are lilac and peach, so
+  // "dark brown" hair came out purple).
+  const lit = luminance(mat.albedoColor);
+  m.albedoColor.set(1, 1, 1);
   // The toon plugin's settings aren't serialized, so the clone starts at defaults.
   const from = mat.pluginManager?.getPlugin('Toon'), to = m.pluginManager?.getPlugin('Toon');
-  if (from && to) { to.shade.copyFrom(from.shade); to.params = [...from.params]; to.isEnabled = from.isEnabled; }
+  if (from && to) {
+    // Shade in the target's hue, as much darker than the lit colour as the model's was.
+    const dark = lit > 1e-3 ? Math.min(1, luminance(from.shade) / lit) : 1;
+    Color3.FromHexString(hex).toLinearSpaceToRef(to.shade, true).scaleInPlace(dark);
+    to.params = [...from.params]; to.isEnabled = from.isEnabled;
+  }
   return m;
 }
+
+const luminance = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 
 // ---------------------------------------------------------------- residents
 const slot = (name) => {

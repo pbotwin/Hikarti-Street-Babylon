@@ -100,6 +100,9 @@ export class InteriorSystem {
         r.root.position.set(c.x, 0, c.z);
         r.root.rotation.y = c.yaw;
         room.staffHome = { x: c.x, z: c.z, yaw: c.yaw };
+        // Standing pose from the start: the shopfront pictures are captured
+        // before she ever walks in (staff stood there in the model's T-pose).
+        animateResident(r, 0, { gender: 'f' });
         casters.push(...r.casters);
       } catch (e) { console.warn('shop staff', e); }
     }));
@@ -112,6 +115,9 @@ export class InteriorSystem {
         const bx = -Math.sin(v.yaw) * 0.55, bz = -Math.cos(v.yaw) * 0.55;
         r.root.position.set(v.x + bx, 0.15, v.z + bz);
         r.root.rotation.y = v.yaw;
+        // Standing pose from the start: update() only poses within 45 m, and
+        // farther down the street the vendor stood in the model's T-pose.
+        animateResident(r, 0, { gender: 'f' });
         this.vendors[name] = { r, stall: v };
       } catch (e) { console.warn('stall vendor', e); }
     }));

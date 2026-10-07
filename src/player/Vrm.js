@@ -1,4 +1,4 @@
-import { SceneLoader, TransformNode, Quaternion, Vector3, Color3, MaterialPluginBase, PBRMaterial, RegisterMaterialPlugin } from '@babylonjs/core';
+import { SceneLoader, TransformNode, Quaternion, Vector3, Color3, MaterialPluginBase, PBRMaterial, RegisterMaterialPlugin, VertexBuffer } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 
 /**
@@ -151,6 +151,10 @@ export async function loadVrm(scene, file, { outline = true, shadeTones = [] } =
   const res = await SceneLoader.ImportMeshAsync('', '', bytes, scene, undefined, '.glb');
   const vrm1 = !!json.extensions?.VRMC_vrm;
   const gltfRoot = res.meshes[0];            // loader's __root__
+  // Vertex colours (boy_uniform has them on every part) are ignored by the
+  // original's MToon materials; Babylon multiplies them in, which turned
+  // those residents into flat lilac figures.
+  for (const m of res.meshes) if (m.isVerticesDataPresent(VertexBuffer.ColorKind)) m.removeVerticesData(VertexBuffer.ColorKind);
 
   // Character root: what the game moves and turns.
   const root = new TransformNode(`vrm:${name}`, scene);
