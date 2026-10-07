@@ -9,7 +9,7 @@ Everything is made in her rest pose (T-pose; Blender space: metres, Z up,
   1. The body as she wears it (skin, tee, shorts of the VRM's Body mesh)
      plus simple volumes that give a garment its cut (loose sleeves, a
      flare) become one signed distance field; the garment is its surface at
-     an offset (the ease), concave corners filleted so cloth bridges hollows
+     an offset (the ease), closed morphologically so cloth bridges hollows
      instead of clinging. Nothing pokes through at rest by construction.
   2. Trimmed to its openings by planes, remeshed to even quads (QuadriFlow)
      at a phone budget, trimmed again so the openings are clean loops.
@@ -887,7 +887,7 @@ def occlusion(o, others):
         n = v.normal
         rot = n.to_track_quat('Z', 'Y')
         hits = sum(1 for d in dirs if tree.ray_cast(v.co + n * 0.002, rot @ d, 0.08)[0] is not None)
-        out.append(1 - 0.5 * hits / len(dirs))
+        out.append(1 - 0.3 * hits / len(dirs))
     return out
 
 

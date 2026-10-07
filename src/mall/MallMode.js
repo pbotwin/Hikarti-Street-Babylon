@@ -46,7 +46,9 @@ export class MallMode {
     await world.init();
     ctx.layout = world.layout;
     d.ui.setLoading(0.45, 'Stocking the shelves…');
-    this.modules = [world, new MallShopping(ctx), new MallFashion(ctx), new MallShoppers(ctx)];
+    // Shopping takes the clothing store's bags to the cart and the boot.
+    const fashion = ctx.fashion = new MallFashion(ctx);
+    this.modules = [world, new MallShopping(ctx), fashion, new MallShoppers(ctx)];
     await Promise.all(this.modules.slice(1).map((m) => m.init()));
     d.ui.setLoading(0.85, 'Opening the doors…');
     // Shaders and geometry finished on the GPU now, not on first sight.

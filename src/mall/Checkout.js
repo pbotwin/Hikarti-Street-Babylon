@@ -280,37 +280,29 @@ export class Checkouts {
   /** One bag: she leans to the packing shelf, takes it by its handles and lifts it into the cart ahead. */
   _bagSteps(l, cart, bag) {
     const shop = this.shop, her = shop.her, act = this.ctx.animation.act;
-    const entry = shop.bags.entry(bag);
+    const e = shop.bags.entry(bag), b = { x: bag.x, y: bag.y, z: bag.z };
     let slot = null, x0 = 0, z0 = 0, yaw0 = 0;
     return [
       { d: 0.55, step: (k, dt, first) => {
         if (first) { x0 = her.x; z0 = her.z; yaw0 = her.yaw; }
         const m = ease(k);
         shop._hands(cart, 1 - ease(k * 2));
-        her.place(x0 + l.n.x * 0.18 * m, z0 + l.n.z * 0.18 * m, lerpAngle(yaw0, Math.atan2(bag.x - x0, bag.z - z0), m));
-        her.reachTo(bag.x, bag.y + BAG.handle, bag.z, ease((k - 0.25) / 0.75));
-      }, done: () => shop.grip({ bag }, bag.x, bag.y, bag.z) },
+        her.place(x0 + l.n.x * 0.18 * m, z0 + l.n.z * 0.18 * m, lerpAngle(yaw0, Math.atan2(b.x - x0, b.z - z0), m));
+        her.reachTo(b.x, b.y + BAG.handle, b.z, ease((k - 0.25) / 0.75));
+      }, done: () => shop.grip(e, b.x, b.y, b.z) },
       // Lifted round and down into the basket.
       { d: 0.75, step: (k, dt, first) => {
         if (first) {
-          entry.flying = true;
-          cart.stow(entry);
-          slot = cart.slotWorld(entry, { x: 0, y: 0, z: 0 });
+          e.flying = true;
+          cart.stow(e);
+          slot = cart.slotWorld(e, { x: 0, y: 0, z: 0 });
         }
         const m = ease(k);
         her.place(lerp(x0 + l.n.x * 0.18, x0 + l.d.x * 0.15, m), lerp(z0 + l.n.z * 0.18, z0 + l.d.z * 0.15, m),
-          lerpAngle(Math.atan2(bag.x - x0, bag.z - z0), Math.atan2(slot.x - x0, slot.z - z0), m));
+          lerpAngle(Math.atan2(b.x - x0, b.z - z0), Math.atan2(slot.x - x0, slot.z - z0), m));
         act.crouch = 0.35 * Math.sin(k * Math.PI / 2);
-        her.reachTo(lerp(bag.x, slot.x, m), lerp(bag.y, slot.y, m) + BAG.handle + Math.sin(k * Math.PI) * 0.22, lerp(bag.z, slot.z, m), 1);
-      }, done: () => {
-        shop.inHand = null;
-        act.holdR = 0;
-        cart.toLocal(bag.x, bag.y, bag.z, _p);
-        entry.cur = { x: _p.x, y: _p.y, z: _p.z, yaw: bag.yaw - cart.yaw };
-        entry.flying = false;
-        cart.moved = true;
-        shop.tones.drop();
-      } },
+        her.reachTo(lerp(b.x, slot.x, m), lerp(b.y, slot.y, m) + BAG.handle + Math.sin(k * Math.PI) * 0.22, lerp(b.z, slot.z, m), 1);
+      }, done: () => shop._release(e, cart) },
       { d: 0.4, step: (k) => {
         const m = ease(k);
         act.crouch = 0.35 * (1 - m);

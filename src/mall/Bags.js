@@ -27,7 +27,7 @@ export class Bags {
     // Seen from inside too (an open bag).
     this.material.backFaceCulling = false;
     this.material.twoSidedLighting = true;
-    const b = new Batch(scene, 'mall:bags', { cast: true });
+    const b = new Batch(scene, 'mall:bags');
     buildBag(b, this.material);
     [this.mesh] = b.build(null);
     this.mesh.alwaysSelectAsActiveMesh = true;
@@ -105,9 +105,13 @@ export class Bags {
     }
   }
 
-  /** As a cart entry (stow it in a cart: the cart places it). */
+  /** The bag as a carrier (in her hand, a cart, the boot), made once per bag. */
   entry(bag) {
-    return { bag, size: { w: BAG.w, d: BAG.d, h: BAG.h }, put: (x, y, z, yaw) => this.put(bag, x, y, z, yaw) };
+    if (!bag.carrier) {
+      bag.carrier = carrier({ w: BAG.w, d: BAG.d, h: BAG.h }, BAG.handle, (x, y, z, yaw) => this.put(bag, x, y, z, yaw));
+      Object.assign(bag.carrier, { x: bag.x, y: bag.y, z: bag.z, yaw: bag.yaw });
+    }
+    return bag.carrier;
   }
 
   update() {
@@ -122,6 +126,20 @@ export class Bags {
     this.material.dispose();
     this.list.length = 0;
   }
+}
+
+/**
+ * A carried bag (one of these, or the clothing store's): its size, the
+ * height of its handles above its base, its base pose (x, y, z, yaw) and
+ * put(), which moves it there. A cart stows it, her palm carries it, the
+ * boot holds it, whoever made it.
+ */
+export function carrier(size, handle, place) {
+  const c = {
+    carrier: true, size, handle, x: 0, y: 0, z: 0, yaw: 0, flying: false,
+    put(x, y, z, yaw) { c.x = x; c.y = y; c.z = z; c.yaw = yaw; place(x, y, z, yaw); },
+  };
+  return c;
 }
 
 /** The bag: open-topped kraft body, a folded rim, the mall's band and logo, two handles. */

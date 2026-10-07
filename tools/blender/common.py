@@ -5,17 +5,11 @@ scripts here use. Conventions: metres, Blender Z up, the front faces -Y
 (glTF export turns that into +Z, the game's "forward").
 """
 import os
-import sys
 
 import bpy
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 OUT = os.path.join(ROOT, 'public', 'models', 'props')
-
-
-def args():
-    """Arguments after `--` on the blender command line."""
-    return sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 
 
 def reset():

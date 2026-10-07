@@ -1,5 +1,4 @@
 import { Vector3 } from '@babylonjs/core';
-import { BAG } from './Bags.js';
 import { Her, lerpAngle } from './Her.js';
 import { ease, lerp } from './Timeline.js';
 
@@ -32,6 +31,7 @@ export class Boot {
       open: P('Open the boot', '🚗', 7, () => this.open()),
       load: P('Load the bags', '🛍', 7, () => this.load()),
       close: P('Close the boot', '🚗', 6, () => this.close()),
+      stow: P('Put the bags in the boot', '🛍', 7, () => this.stowCarried()),
     };
   }
 
@@ -64,9 +64,9 @@ export class Boot {
     if (!car) return;
     car.locked = shop.pushing.active || this.k > 0.01 || shop.busy;
     // The bags ride in the boot.
-    for (const { bag, slot } of this.loaded) {
+    for (const { e, slot } of this.loaded) {
       this._world(slot[0], car.boot.floor.y, slot[1], _w);
-      this.shop.bags.put(bag, _w.x, _w.y, _w.z, car.yaw + Math.PI / 2);
+      e.put(_w.x, _w.y, _w.z, car.yaw + Math.PI / 2);
     }
     if (!this.finished && v.active === car && v.phase === 'drive') {
       const e = this.ctx.layout.exit;
@@ -80,19 +80,20 @@ export class Boot {
   /** How many bags are in her cart. */
   _bagCount() {
     let n = 0;
-    for (const e of this.shop.mine?.contents || NONE) if (e.bag) n++;
+    for (const e of this.shop.mine?.contents || NONE) if (e.carrier) n++;
     return n;
   }
 
   /** Open / load / close, when she is at the back of her car. */
   prompt() {
     const car = this.car, shop = this.shop;
-    if (!car || shop.held) return null;
+    if (!car || shop.held || shop.clothes) return null;
     this._world(0, 0, OPEN_Z, _w);
     const d = Math.hypot(shop.her.x - _w.x, shop.her.z - _w.z);
     if (d > (this.k > 0.5 ? 2.2 : 1.6)) return null;
     const P = this._prompts;
-    if (this.k < 0.5) return shop._show(P.open, d);
+    if (this.k < 0.5) return shop.bagsInHand ? null : shop._show(P.open, d);
+    if (shop.bagsInHand && this.loaded.length < SLOTS.length) return shop._show(P.stow, d);
     const cart = shop.mine;
     const cartNear = cart && Math.hypot(cart.x - _w.x, cart.z - _w.z) < 4;
     if (cartNear && this._bagCount() && this.loaded.length < SLOTS.length) return shop._show(P.load, d);
@@ -156,7 +157,7 @@ export class Boot {
 
   /** Every bag from her cart into the boot, one by one. */
   load() {
-    const bags = this.shop.mine.contents.filter((e) => e.bag);
+    const bags = this.shop.mine.contents.filter((e) => e.carrier);
     const next = () => {
       const e = bags.shift();
       if (!e || this.loaded.length >= SLOTS.length) { this._done(); return; }
@@ -174,35 +175,46 @@ export class Boot {
     cart.toWorld(side * 0.62, 0, e.cur.z, _p);
     const go = () => shop.walkTo(_p.x, _p.z, () => {
       her.freeze(true);
-      const bag = e.bag, yaw0 = her.yaw;
+      const yaw0 = her.yaw, b = { x: e.x, y: e.y, z: e.z };
       const slot = SLOTS[this.loaded.length];
       shop.tl.play([
         { d: 0.5, step: (k) => {
-          her.place(her.x, her.z, lerpAngle(yaw0, Math.atan2(bag.x - her.x, bag.z - her.z), ease(k)));
+          her.place(her.x, her.z, lerpAngle(yaw0, Math.atan2(b.x - her.x, b.z - her.z), ease(k)));
           act.crouch = 0.3 * ease(k);
-          her.reachTo(bag.x, bag.y + BAG.handle, bag.z, ease((k - 0.2) / 0.8));
+          her.reachTo(b.x, b.y + e.handle, b.z, ease((k - 0.2) / 0.8));
         }, done: () => {
           cart.unstow(e);
-          shop.grip({ bag }, bag.x, bag.y, bag.z);
+          shop.grip(e, b.x, b.y, b.z);
           shop.tones.click();
         } },
         // Lift it out and let it hang at her side.
         { d: 0.45, step: (k) => {
           act.crouch = 0.3 * (1 - ease(k));
-          her.reachTo(bag.x, bag.y + BAG.handle + 0.25 * ease(k), bag.z, 1 - ease(k));
+          her.reachTo(b.x, b.y + e.handle + 0.25 * ease(k), b.z, 1 - ease(k));
           act.bag = ease(k);
         }, done: () => {
           her.freeze(false);
           this._world(slot[0] * 0.6, 0, OPEN_Z, _w);
-          shop.walkTo(_w.x, _w.z, () => this._setIn(bag, slot, then));
+          shop.walkTo(_w.x, _w.z, () => this._setIn(e, slot, then));
         } },
       ]);
     });
     if (shop.pushing.active) this._goBehind(OPEN_Z, 0, go); else go();
   }
 
-  /** At the back of the car with a bag: lift it over the sill and set it on the boot floor. */
-  _setIn(bag, slot, then) {
+  /** The bags she carries in her hand (from the clothing store) straight into the open boot. */
+  stowCarried() {
+    const shop = this.shop;
+    const next = () => {
+      const e = shop.nextCarried();
+      if (!e || this.loaded.length >= SLOTS.length) { this._done(); return; }
+      this._setIn(e, SLOTS[this.loaded.length], next);
+    };
+    this._goBehind(OPEN_Z, 0, next);
+  }
+
+  /** At the back of the car with a bag in her hand: lift it over the sill and set it on the boot floor. */
+  _setIn(e, slot, then) {
     const shop = this.shop, her = shop.her, act = this.ctx.animation.act, car = this.car;
     her.freeze(true);
     const yaw0 = her.yaw;
@@ -218,17 +230,17 @@ export class Boot {
         act.bag = 1 - ease(k * 3);
         this._world(slot[0], car.boot.floor.y, slot[1], _w);
         act.crouch = 0.55 * Math.sin(k * Math.PI / 2);
-        her.reachTo(lerp(from.x, _w.x, m), lerp(from.y, _w.y + BAG.handle, m) + Math.sin(k * Math.PI) * 0.3, lerp(from.z, _w.z, m), ease(k / 0.3));
+        her.reachTo(lerp(from.x, _w.x, m), lerp(from.y, _w.y + e.handle, m) + Math.sin(k * Math.PI) * 0.3, lerp(from.z, _w.z, m), ease(k / 0.3));
       }, done: () => {
         shop.inHand = null;
         act.holdR = 0;
-        this.loaded.push({ bag, slot });
+        this.loaded.push({ e, slot });
         shop.tones.drop();
       } },
       { d: 0.45, step: (k) => {
         act.crouch = 0.55 * (1 - ease(k));
         this._world(slot[0], car.boot.floor.y, slot[1], _w);
-        her.reachTo(_w.x, _w.y + BAG.handle + 0.2 * k, _w.z, 1 - ease(k));
+        her.reachTo(_w.x, _w.y + e.handle + 0.2 * k, _w.z, 1 - ease(k));
       } },
     ], () => { act.reach = null; act.crouch = 0; her.freeze(false); then(); });
   }

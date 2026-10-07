@@ -3,7 +3,7 @@ import { ProductSet, disposeGroceryGoods, groceryLabel } from '../interiors/Prod
 import { CART, CartFleet } from './Cart.js';
 import { ShelfStock, dims } from './ShelfStock.js';
 import { Pushing } from './Pushing.js';
-import { Bags, BAG } from './Bags.js';
+import { Bags, carrier } from './Bags.js';
 import { Checkouts, totalOf } from './Checkout.js';
 import { Boot } from './Boot.js';
 import { Her, lerpAngle } from './Her.js';
@@ -38,7 +38,8 @@ export class MallShopping {
     this.pushing = new Pushing(ctx, this.tones);
     this.mine = null;         // her cart (pushed or parked somewhere)
     this.held = null;         // an item in her right hand (no cart)
-    this.inHand = null;       // what her palm carries during an action: an item, or { bag }
+    this.inHand = null;       // what her palm carries during an action: an item, or a bag (carrier)
+    this.hanging = [];        // more bags hanging from the same hand (the clothing store's), waiting their turn
     this.target = null;       // the shelf pack she is looking at: { f, u }
     this.time = 0;
     this._walk = null;
@@ -52,6 +53,7 @@ export class MallShopping {
       leave: P('Leave the cart', ICON.cart, 1, () => this.leaveCart()),
       ret: P('Return the cart', ICON.cart, 3, () => this.returnCart(this._slot)),
       grab: P('Take the cart', ICON.cart, 4, () => this.takeCart(this.mine, null)),
+      bags: P('Put the bags in the cart', '🛍', 6, () => this.bagsIntoCart(this.mine)),
       corral: P('Take a cart', ICON.cart, 4, () => this.takeCart(this._slot.cart, this._slot)),
     };
     this._aimAt = { f: null, u: null };
@@ -150,20 +152,60 @@ export class MallShopping {
   /** What her palm carries follows it (blending in from where it was picked up). */
   _carryInHand(dt) {
     const h = this.inHand;
-    if (!h) return;
+    if (!h && !this.hanging.length) return;
+    const yaw = this.her.yaw;
     this.her.palm(_v);
-    _v.y -= h.bag ? BAG.handle - 0.015 : h.size.h / 2;
+    const px = _v.x, py = _v.y, pz = _v.z;
+    // Bags waiting their turn hang beside the one she handles.
+    for (let i = 0; i < this.hanging.length; i++) {
+      const e = this.hanging[i], o = (i + 1) * 0.02;
+      e.put(px + Math.cos(yaw) * o, py - e.handle + 0.015, pz - Math.sin(yaw) * o, yaw + Math.PI / 2);
+    }
+    if (!h) return;
+    _v.y -= h.carrier ? h.handle - 0.015 : h.size.h / 2;
     if (h.blend < 1) {
       h.blend = Math.min(1, h.blend + dt / 0.14);
       const k = ease(h.blend), f = h.grab;
       _v.set(lerp(f.x, _v.x, k), lerp(f.y, _v.y, k), lerp(f.z, _v.z, k));
     }
-    const yaw = this.her.yaw;
-    if (h.bag) this.bags.put(h.bag, _v.x, _v.y, _v.z, yaw + Math.PI / 2);
+    if (h.carrier) h.put(_v.x, _v.y, _v.z, yaw + Math.PI / 2);
     else this.goods.move(h.unit, _v.x, _v.y, _v.z, yaw);
   }
 
-  /** Her palm takes something (an item, or { bag }) from where it is now (its base). */
+  // ------------------------------------------------------------ the clothing store's bags
+  /** She carries clothes from the store's racks (its own business: hers are busy). */
+  get clothes() { return (this.ctx.fashion?.carried?.length || 0) > 0; }
+
+  /** Paid bags in her hand: the clothing store's, or ones handed over to this module. */
+  get bagsInHand() { return this.hanging.length > 0 || (!!this.ctx.fashion?.handsFull && !this.clothes); }
+
+  /**
+   * The next bag from her hand to put somewhere: the clothing store's bags
+   * are taken over (as carriers of their meshes, which stay the store's) and
+   * the first goes to her palm. null when there are none.
+   */
+  nextCarried() {
+    if (this.ctx.fashion?.handsFull && !this.clothes) {
+      for (const b of this.ctx.fashion.takeBags()) this.hanging.push(storeBag(b.mesh));
+    }
+    const e = this.hanging.shift();
+    if (e) this.grip(e, e.x, e.y, e.z);
+    return e || null;
+  }
+
+  /** The bags in her hand, one by one, into her (parked) cart; then `then`. */
+  bagsIntoCart(cart, then = null) {
+    const her = this.her;
+    her.freeze(true);
+    const next = () => {
+      const e = this.nextCarried();
+      if (!e) { this._after(null); then?.(); return; }
+      this.tl.play(this._intoCart(() => e, cart, { x: her.x, z: her.z, yaw: her.yaw }, false), next);
+    };
+    next();
+  }
+
+  /** Her palm takes something (an item, or a bag) from where it is now (its base). */
   grip(thing, x, y, z) {
     thing.grab = { x, y, z };
     thing.blend = 0;
@@ -189,10 +231,14 @@ export class MallShopping {
 
   // ------------------------------------------------------------ prompt
   prompt() {
-    if (this.busy || this.ctx.vehicles.driving || (this.ctx.player.ride && !this.pushing.active)) return null;
+    if (this.busy || this.ctx.vehicles.driving || (this.ctx.player.ride && !this.pushing.active) || this.clothes) return null;
     const P = this._prompts;
     const boot = this.boot.prompt();
     if (boot) return boot;
+    if (this.bagsInHand && !this.pushing.active) {
+      const d = this.mine ? this._cartDistance(this.mine) : Infinity;
+      if (d < 1.4) return this._show(P.bags, d);
+    }
     if (this.pushing.active) {
       const lane = this.checkouts.prompt();
       if (lane) return lane;
@@ -201,7 +247,8 @@ export class MallShopping {
       if (ret < Infinity) return this._show(P.ret, ret);
       return this._show(P.leave, 2);
     }
-    if (this.held) {
+    if (this.held || this.bagsInHand) {
+      if (!this.held) return null;
       if (P.back.item !== this.held) {
         P.back.item = P.into.item = this.held;
         P.back.label = `Put back ${this.held.p.name}`;
@@ -272,8 +319,9 @@ export class MallShopping {
         } },
       ], () => {
         this.mine = cart;
-        her.freeze(false);
-        this.pushing.start(cart);
+        // Bags in her hand go into the basket before she pushes off.
+        if (this.bagsInHand) this.bagsIntoCart(cart, () => this.takeCart(cart, null));
+        else { her.freeze(false); this.pushing.start(cart); }
       });
     });
   }
@@ -393,7 +441,7 @@ export class MallShopping {
    */
   _intoCart(getItem, cart, back, handle) {
     const her = this.her, act = this.ctx.animation.act;
-    let from = null, slot = null, item = null;
+    let from = null, slot = null, item = null, lift = 0, top = 0;
     const toSlot = () => Math.atan2(slot.x - back.x, slot.z - back.z);
     return [
       { d: 0.5, step: (k, dt, first) => {
@@ -403,34 +451,37 @@ export class MallShopping {
           item.flying = true;
           if (!cart.stow(item)) this.ctx.hud.toast('The cart is full', 'Check out what you have');
           slot = cart.slotWorld(item, { x: 0, y: 0, z: 0 });
+          // Her wrist over the slot: a pack held at its middle, a bag by its handles.
+          lift = item.carrier ? item.handle + 0.06 : item.size.h + 0.12;
+          top = slot.y + (item.carrier ? item.handle : item.size.h);
         }
         const m = ease(k);
         her.place(lerp(from.x, back.x, m), lerp(from.z, back.z, m), lerpAngle(from.yaw, toSlot(), m));
         act.crouch = lerp(from.crouch, 0, m);
-        her.reachTo(lerp(from.rx, slot.x, m), lerp(from.ry, slot.y + item.size.h + 0.12, m) + Math.sin(k * Math.PI) * 0.12, lerp(from.rz, slot.z, m), 1);
+        her.reachTo(lerp(from.rx, slot.x, m), lerp(from.ry, slot.y + lift, m) + Math.sin(k * Math.PI) * 0.12, lerp(from.rz, slot.z, m), 1);
       } },
       { d: 0.25, step: (k) => {
-        act.crouch = Her.crouchFor(slot.y + item.size.h) * 0.5 * ease(k);
-        her.reachTo(slot.x, slot.y + item.size.h + 0.12 - 0.1 * ease(k), slot.z, 1);
+        act.crouch = Her.crouchFor(top) * 0.5 * ease(k);
+        her.reachTo(slot.x, slot.y + lift - 0.1 * ease(k), slot.z, 1);
       }, done: () => this._release(item, cart) },
       { d: 0.45, step: (k) => {
         const m = ease(k);
-        act.crouch = Her.crouchFor(slot.y + item.size.h) * 0.5 * (1 - m);
-        her.reachTo(slot.x, slot.y + item.size.h + 0.02 + 0.2 * m, slot.z, 1 - m);
+        act.crouch = Her.crouchFor(top) * 0.5 * (1 - m);
+        her.reachTo(slot.x, slot.y + lift - 0.1 + 0.2 * m, slot.z, 1 - m);
         her.place(back.x, back.z, lerpAngle(toSlot(), back.yaw, m));
         if (handle) this._hands(cart, ease((k - 0.4) / 0.6));
       } },
     ];
   }
 
-  /** Let go of an item over the cart: it drops into its slot from where it is. */
-  _release(item, cart) {
+  /** Let go of an item (or a bag) over the cart: it drops into its slot from where it is. */
+  _release(thing, cart) {
     this.inHand = null;
-    this.her.act.holdR = 0;
-    const u = item.unit;
-    cart.toLocal(u.x, u.y, u.z, _local);
-    item.cur = { x: _local.x, y: _local.y, z: _local.z, yaw: u.ry - cart.yaw };
-    item.flying = false;
+    if (!this.hanging.length) this.her.act.holdR = 0;
+    const p = thing.carrier ? thing : thing.unit, yaw = thing.carrier ? thing.yaw : thing.unit.ry;
+    cart.toLocal(p.x, p.y, p.z, _local);
+    thing.cur = { x: _local.x, y: _local.y, z: _local.z, yaw: yaw - cart.yaw };
+    thing.flying = false;
     cart.moved = true;
     this.tones.drop();
   }
@@ -565,6 +616,7 @@ export class MallShopping {
     player.hold = false;
     this.her.rest();
     hud.panel('cart', null);
+    this.hanging.length = 0;
     this.boot.dispose();
     this.checkouts.dispose();
     this.bags.dispose();
@@ -577,3 +629,17 @@ export class MallShopping {
 }
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+
+/**
+ * The clothing store's paper bag as a carrier: its mesh hangs from its
+ * handles (origin), the paper's base 0.39 m below them.
+ */
+function storeBag(mesh) {
+  const HANDLE = 0.39;
+  const c = carrier({ w: 0.3, d: 0.12, h: 0.34 }, HANDLE, (x, y, z, yaw) => {
+    mesh.position.set(x, y + HANDLE, z);
+    mesh.rotation.set(0, yaw, 0);
+  });
+  Object.assign(c, { x: mesh.position.x, y: mesh.position.y - HANDLE, z: mesh.position.z, yaw: mesh.rotation.y });
+  return c;
+}

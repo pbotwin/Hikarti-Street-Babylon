@@ -54,7 +54,9 @@ export class MallShoppers {
     this.cars = parkedCars(layout);
     this.group = new TransformNode('mall shoppers', scene);
     this.group.freezeWorldMatrix();
-    this.mind = new ShopperMind({ layout, nav: this.nav, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers });
+    this.mind = new ShopperMind({ layout, nav: this.nav, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers,
+      // The clothing store's fitting rooms (shared with her: `inUse` while someone is in one).
+      rooms: () => this.ctx.fashion?.rooms || [] });
     for (const id of ids) {
       const item = npcs.lend(id);
       if (item) this.shoppers.push(this._shopper(item, this.shoppers.length));
@@ -81,7 +83,7 @@ export class MallShoppers {
     const s = {
       index, item, id: item.id, name: item.name, look: item.look, vrm: item.vrm, root, label, position: root.position,
       away: true, shown: false, done: false, arriveT: Infinity, awayT: 0, bay: null,
-      want: null, kind: null, clothes: false, stage: 'arrive', plan: [], step: null, t: 0, sub: 0, k: 0, wait: 0,
+      want: null, kind: null, room: null, hidden: false, clothes: false, stage: 'arrive', plan: [], step: null, t: 0, sub: 0, k: 0, wait: 0,
       route: Object.assign([], { count: 0 }), ri: 0, prog: { x: 0, z: 0, t: 0 }, snags: 0,
       facing: 0, facingTarget: 0, moving: false, moveSpeed: 0, speed: 0, walkPhase: 0, lookYaw: 0, pace: rnd(0.88, 1.1),
       act: null, actK: 0, hands: { l: null, r: null, lean: 0, pitch: 0 },
@@ -121,6 +123,7 @@ export class MallShoppers {
     const gear = this.gear;
     s.line?.leave(s);
     s.line = null;
+    this.mind.leaveRoom(s);
     if (s.good) { gear.drop(s.good); s.good = null; }
     if (s.carryGood) { gear.drop(s.carryGood); s.carryGood = null; }
     if (s.bag) { gear.releaseBag(s.bag); s.bag = null; }
@@ -160,7 +163,7 @@ export class MallShoppers {
       const dx = pl.x - s.position.x, dz = pl.z - s.position.z, d = Math.hypot(dx, dz);
       s.distance = d;
       // 3 m of hysteresis, as the city's residents: no popping at the edge.
-      this._show(s, d < (s.shown ? range + 3 : range));
+      this._show(s, !s.hidden && d < (s.shown ? range + 3 : range));
       if (!s.shown) continue;
       const toHer = Math.atan2(dx, dz);
       // Greeting her as she comes by: a wave and a smile, now and then.
@@ -278,6 +281,7 @@ export class MallShoppers {
     const walkers = world.walkers || [];
     for (let k = walkers.length - 1; k >= 0; k--) if (this.shoppers.includes(walkers[k])) walkers.splice(k, 1);
     for (const s of this.shoppers) {
+      this.mind.leaveRoom(s);
       s.vrm.root.position.y = 0;
       npcs.giveBack(s.item);
       s.label.dispose();

@@ -7,6 +7,7 @@
  *   shape  carton | bottle | bigBottle | can | tub | block | bag | box | jar |
  *          loaf | bun | fruit | tray | roll | pack
  *   color  package colour, label: the printed band's colour
+ *   size   scale of the shape's standard pack (big packs: rice 5 kg, ×12 rolls)
  *   kind / boost: as ShopData items (drinks run faster, food jumps higher);
  *   everything else goes to the pantry in her Bag.
  * Clothing: { id, name, kind: top | bottom | shoes, garment, color, price, rack }
@@ -15,7 +16,7 @@
  *   in that colour.
  */
 
-const g = (id, name, brand, aisle, price, shape, color, label, extra = {}) => ({ id, name, brand, aisle, price, look: { shape, color, label }, ...extra });
+const g = (id, name, brand, aisle, price, shape, color, label, { size, ...extra } = {}) => ({ id, name, brand, aisle, price, look: { shape, color, label, ...(size && { size }) }, ...extra });
 
 export const AISLES = {
   drinks: 'Drinks',
@@ -60,14 +61,14 @@ export const GROCERIES = [
   g('melonpanBag', 'Melon Pan', 'Komorebi Bakery', 'bakery', 2, 'bun', '#e9c46a', '#3d7a3a', { kind: 'food', boost: { jump: 45 } }),
   g('curryPan', 'Curry Pan', 'Komorebi Bakery', 'bakery', 3, 'bun', '#c98a4b', '#b3202a', { kind: 'food', boost: { jump: 45 } }),
   g('croissants', 'Croissants ×4', 'Komorebi Bakery', 'bakery', 5, 'pack', '#d9a066', '#5a3a1c', { kind: 'food', boost: { jump: 40 } }),
-  g('baguette', 'Baguette', 'Komorebi Bakery', 'bakery', 3, 'loaf', '#d9a066', '#5a3a1c'),
+  g('baguette', 'Baguette', 'Komorebi Bakery', 'bakery', 3, 'loaf', '#d9a066', '#5a3a1c', { size: 1.3 }),
   // Fruit & vegetables
   g('apples', 'Fuji Apples', 'Aomori', 'produce', 4, 'fruit', '#c8323a', '#2e7d32', { kind: 'food', boost: { jump: 30 } }),
   g('bananas', 'Bananas', 'Sunny Grove', 'produce', 3, 'fruit', '#f2d43a', '#4a7a2a', { kind: 'food', boost: { jump: 30 } }),
   g('mandarins', 'Mandarins', 'Ehime', 'produce', 4, 'fruit', '#f29a2e', '#3d7a3a', { kind: 'food', boost: { jump: 30 } }),
   g('strawberryPunnet', 'Strawberries', 'Tochigi', 'produce', 7, 'tray', '#e0525e', '#2e7d32', { kind: 'food', boost: { jump: 60 } }),
   g('tomatoes', 'Tomatoes', 'Kumamoto', 'produce', 4, 'fruit', '#e24a3b', '#2e7d32'),
-  g('cabbage', 'Cabbage', 'Gunma', 'produce', 3, 'fruit', '#a8d08d', '#5a8f3a'),
+  g('cabbage', 'Cabbage', 'Gunma', 'produce', 3, 'fruit', '#a8d08d', '#5a8f3a', { size: 1.4 }),
   g('carrots', 'Carrots', 'Hokkaido Farm', 'produce', 2, 'bag', '#f08a2e', '#3d7a3a'),
   g('negi', 'Green Onions', 'Saitama', 'produce', 2, 'roll', '#e8f0d8', '#4a8f3a'),
   // Snacks & sweets
@@ -79,7 +80,7 @@ export const GROCERIES = [
   g('senbei', 'Rice Crackers', 'Kurogane', 'snacks', 3, 'bag', '#c08a4a', '#1d1d1f', { kind: 'food', boost: { jump: 25 } }),
   g('gummies', 'Fruit Gummies', 'Kumo', 'snacks', 2, 'bag', '#9c6ad1', '#f2d43a', { kind: 'food', boost: { jump: 25 } }),
   // Pantry
-  g('rice5kg', 'Koshihikari Rice 5 kg', 'Niigata', 'pantry', 18, 'bag', '#f4f1ea', '#2e7d32'),
+  g('rice5kg', 'Koshihikari Rice 5 kg', 'Niigata', 'pantry', 18, 'bag', '#f4f1ea', '#2e7d32', { size: 2 }),
   g('soySauce', 'Soy Sauce', 'Kikko', 'pantry', 4, 'bottle', '#3a1a12', '#c0392b'),
   g('miso', 'Miso Paste', 'Shinshu', 'pantry', 5, 'tub', '#b07a3a', '#ffffff'),
   g('curryRoux', 'Curry Roux', 'Golden', 'pantry', 4, 'box', '#e8a32a', '#b3202a'),
@@ -88,13 +89,13 @@ export const GROCERIES = [
   g('honey', 'Honey', 'Meadowcream', 'pantry', 6, 'jar', '#e8a32a', '#3d2a1c'),
   // Frozen
   g('gyoza', 'Frozen Gyoza', 'Yuki', 'frozen', 5, 'box', '#e8f0f8', '#c0392b'),
-  g('frozenPizza', 'Margherita Pizza', 'Yuki', 'frozen', 6, 'box', '#c0392b', '#f4f1ea'),
+  g('frozenPizza', 'Margherita Pizza', 'Yuki', 'frozen', 6, 'box', '#c0392b', '#f4f1ea', { size: 1.6 }),
   g('edamame', 'Frozen Edamame', 'Yuki', 'frozen', 3, 'bag', '#7fb069', '#ffffff'),
   // Household
   g('detergent', 'Laundry Detergent', 'Fresh', 'household', 7, 'bigBottle', '#3aa6d9', '#ffffff'),
   g('tissues', 'Tissues ×5', 'Soft', 'household', 4, 'pack', '#f4f1ea', '#5b8fd1'),
   g('dishSoap', 'Dish Soap', 'Fresh', 'household', 3, 'bottle', '#7fd17a', '#ffffff'),
-  g('toiletPaper', 'Toilet Paper ×12', 'Soft', 'household', 6, 'pack', '#ffffff', '#f2a7bd'),
+  g('toiletPaper', 'Toilet Paper ×12', 'Soft', 'household', 6, 'pack', '#ffffff', '#f2a7bd', { size: 2 }),
 ];
 
 export const RACKS = {

@@ -66,17 +66,17 @@ export class CartFleet {
     const plastic = new PBRMaterial('cart:plastic', scene);
     plastic.metallic = 0; plastic.roughness = 0.45; plastic.albedoColor = lin('#ffffff');
     this.materials = [chrome, plastic];
-    const make = (name, build, cast) => {
-      const b = new Batch(scene, name, { cast });
+    const make = (name, build) => {
+      const b = new Batch(scene, name);
       build(b, chrome, plastic);
       return b.build(null).map((m) => { m.alwaysSelectAsActiveMesh = true; return m; });
     };
     // Per part: its meshes and its instance matrices (one per cart, or four: one per castor).
     this.parts = {
-      body: { meshes: make('cart:body', buildBody, true), per: 1 },
-      gate: { meshes: make('cart:gate', buildGate, true), per: 1 },
-      fork: { meshes: make('cart:fork', buildFork, false), per: 4 },
-      wheel: { meshes: make('cart:wheel', buildWheel, false), per: 4 },
+      body: { meshes: make('cart:body', buildBody), per: 1 },
+      gate: { meshes: make('cart:gate', buildGate), per: 1 },
+      fork: { meshes: make('cart:fork', buildFork), per: 4 },
+      wheel: { meshes: make('cart:wheel', buildWheel), per: 4 },
     };
     this.partList = Object.values(this.parts);
     graphics.addCasters([...this.parts.body.meshes, ...this.parts.gate.meshes]);
@@ -166,8 +166,6 @@ export class Cart {
     this.moved = true;
     this.dirty = true;
   }
-
-  get forward() { return { x: Math.sin(this.yaw), z: Math.cos(this.yaw) }; }
 
   /** World point of a cart-space point (into `out`, an { x, y, z } or Vector3). */
   toWorld(lx, ly, lz, out) {

@@ -28,7 +28,7 @@ export class CheckoutLine {
       const t = Math.min(0.5, 0.5 / len);
       this.belt = { from: b.from, to: b.to, len, t0: t, at: [b.from[0] + (b.to[0] - b.from[0]) * t, b.from[1], b.from[2] + (b.to[2] - b.from[2]) * t] };
     } else this.belt = null;
-    this.exit = spot.exit || { x: stop.x + dx * 2.5, z: stop.z + dz * 2.5 };
+    this.exit = spot.exit || null;   // out past the register (a till is left the way they came)
     this.members = [];      // waiting, front first (the front one unloads)
     this.paying = null;     // at the register
     this.riding = [];       // goods on the belt: { g, t }

@@ -38,7 +38,7 @@ button (**F** on desktop, tap on touch) and calls its `run()`.
 
 `scene, engine, camera, graphics, collision, state, ui, input, player,
 character, animation, cameraRig, vehicles, shops, audio, world (MallWorld),
-layout (= world.layout), wallet, hud, effects`
+layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
 
 - `wallet`: `{ coins, spend(n) → bool, receipt: [{ id, name, price, qty }], add(item) }`
   (money for this trip, `TRIP_BUDGET` from the catalog).

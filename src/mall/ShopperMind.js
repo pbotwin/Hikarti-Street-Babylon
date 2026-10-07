@@ -11,6 +11,7 @@ import { showBubble } from '../npcs/life/Acts.js';
  *   shelf    at a shelf or produce table: park the cart alongside, look,
  *            reach and take a product or two into the cart / basket
  *   rack     at a clothing rack: hold a garment up, hang it back or keep it
+ *   fit      try it on in a free fitting room (curtain drawn, out of sight)
  *   queue    line up at a checkout (or the clothing till), unload onto the
  *            belt, pay, take the bags
  *   return   push the cart back into a corral
@@ -67,6 +68,8 @@ export class ShopperMind {
     } else {
       const racks = this._stops(this.racks, 2 + Math.floor(Math.random() * 3));
       racks.forEach((rack, k) => plan.push(this._at({ type: 'rack', rack, keep: k === racks.length - 1 || Math.random() < 0.25 })));
+      // Half of them try on what they picked.
+      if (Math.random() < 0.5) plan.push({ type: 'fit' });
     }
     if (s.want ? this.env.lines.length : this.env.till) plan.push({ type: 'queue' });
     if (s.want === 'cart' && corral) plan.push(this._at({ type: 'return', slot: slots[Math.min(stacked, slots.length - 1)] }));
@@ -159,6 +162,7 @@ export class ShopperMind {
     s.snags = 0;
     if (!st) return;
     if (st.type === 'queue') this._joinLine(s);
+    else if (st.type === 'fit') this._toRoom(s, st);
     else if (st.type !== 'emerge') this.routeTo(s, st.x, st.z);
   }
 
@@ -191,6 +195,7 @@ export class ShopperMind {
       case 'cart': if (this._walkTo(s, st, dt)) this._takeCart(s, st); break;
       case 'shelf': if (this._walkTo(s, st, dt)) this._shelf(s, st, dt); break;
       case 'rack': if (this._walkTo(s, st, dt)) this._rack(s, st); break;
+      case 'fit': if (this._walkTo(s, st, dt)) this._fit(s, st); break;
       case 'queue': this._queue(s, dt); break;
       case 'return': if (this._walkTo(s, st, dt)) this._returnCart(s); break;
       case 'car': if (this._walkTo(s, st, dt)) this._getIn(s); break;
@@ -484,6 +489,53 @@ export class ShopperMind {
     }
   }
 
+  /** Head for the nearest free fitting room (none free: skip it). */
+  _toRoom(s, st) {
+    let best = null, bd = Infinity;
+    for (const r of this.env.rooms()) {
+      const d = r.inUse ? Infinity : Math.hypot(r.data.door.x - s.position.x, r.data.door.z - s.position.z);
+      if (d < bd) { bd = d; best = r; }
+    }
+    if (!best) { this._next(s); return; }
+    st.room = best;
+    st.x = best.data.door.x; st.z = best.data.door.z; st.yaw = best.data.door.yaw;
+    this.routeTo(s, st.x, st.z);
+  }
+
+  /**
+   * In the fitting room: claim it (she can't use it meanwhile; if she just
+   * did, move on), step in, the curtain closes, a while out of sight, out.
+   */
+  _fit(s, st) {
+    const room = st.room, d = room.data;
+    if (s.sub === 0) {
+      if (room.inUse) { this._next(s); return; }
+      room.inUse = true;
+      s.room = room;
+      s.sub = 1; s.t = 0; s.wait = rnd(6, 11);
+    }
+    const inside = s.sub === 2;
+    const u = s.sub === 1 ? smooth(s.t / 1.2) : s.sub === 3 ? 1 - smooth(s.t / 1.2) : 1;
+    s.position.x = d.door.x + (d.inside.x - d.door.x) * u;
+    s.position.z = d.door.z + (d.inside.z - d.door.z) * u;
+    s.moving = s.sub !== 2;
+    s.moveSpeed = s.moving ? 0.8 : 0;
+    s.facingTarget = s.sub === 3 ? d.door.yaw + Math.PI : d.inside.yaw;
+    s.hidden = inside;
+    if (s.sub === 1 && s.t > 1.2) { room.draw(true); s.sub = 2; s.t = 0; }
+    else if (s.sub === 2 && s.t > s.wait) { room.draw(false); s.sub = 3; s.t = 0; }
+    else if (s.sub === 3 && s.t > 1.2) { this.leaveRoom(s); this._next(s); }
+  }
+
+  /** Out of the fitting room (also when the trip ends with them inside). */
+  leaveRoom(s) {
+    if (!s.room) return;
+    s.room.draw(false);
+    s.room.inUse = false;
+    s.room = null;
+    s.hidden = false;
+  }
+
   _joinLine(s) {
     const env = this.env;
     const lines = s.want ? env.lines : [env.till];
@@ -552,6 +604,7 @@ export class ShopperMind {
       line.leave(s);
       s.line = null;
       s.stage = 'leave';
+      if (!line.exit) { this._next(s); return; }
       s.sub = 3;
       this.routeTo(s, line.exit.x, line.exit.z);
       return;
