@@ -86,6 +86,14 @@ export class PlayerController {
   get speed() { return Math.hypot(this.velocity.x, this.velocity.z); }
 
   update(dt, controlsActive) {
+    // A walk asked for while she can't walk (riding, held, climbing) ends at
+    // once where she is: it never ran or finished otherwise, and its caller
+    // (a mall action) kept the controls off for good.
+    if (this.autoWalk && (this.ride || this.hold || this.climb)) {
+      const a = this.autoWalk;
+      this.autoWalk = null;
+      a.done(Math.hypot(a.x - this.position.x, a.z - this.position.z));
+    }
     if (this.ride) { this.ride.update(dt, controlsActive); return; }
     // Held in place by a shop action (taking a product, paying, sitting):
     // no physics, so a chair's collider doesn't push her off it.
