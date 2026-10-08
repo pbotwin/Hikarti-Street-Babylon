@@ -23,6 +23,7 @@ import { ToonPlugin } from '../player/Vrm.js';
 // The original's shadow square (half size, m) and how far behind it the light sits.
 const SHADOW_EXTENT = 22;
 const SHADOW_BACK = 70;
+const SHADOW_NEAR = 1, SHADOW_FAR = 140;    // the shadow camera's depth range (m from the light)
 
 export const PRESETS = {
   low: { label: 'Low', scale: 0.75, shadow: 1024, msaa: 1, fxaa: true, bloom: false, rays: 0 },
@@ -231,16 +232,20 @@ export class Graphics {
 
   /**
    * Babylon draws every caster into the shadow map with no culling; like
-   * three's shadow camera, keep only those overlapping the shadow square.
+   * three's shadow camera, keep only those inside its box (the square and its depth).
    */
   _cullShadowCasters() {
-    const { right, up } = this._basis, c = this._shadowCenter, list = this._shadowList;
+    const { right, up, fwd } = this._basis, c = this._shadowCenter, list = this._shadowList;
     list.length = 0;
     for (const m of this.casters) {
       if (m.isDisposed() || !m.isEnabled()) continue;
-      const s = m.getBoundingInfo().boundingSphere, p = s.centerWorld, r = s.radiusWorld + SHADOW_EXTENT;
+      const s = m.getBoundingInfo().boundingSphere, p = s.centerWorld, rs = s.radiusWorld, r = rs + SHADOW_EXTENT;
       const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
-      if (Math.abs(dx * right.x + dy * right.y + dz * right.z) < r && Math.abs(dx * up.x + dy * up.y + dz * up.z) < r) list.push(m);
+      if (Math.abs(dx * right.x + dy * right.y + dz * right.z) >= r || Math.abs(dx * up.x + dy * up.y + dz * up.z) >= r) continue;
+      // And within the camera's depth: with the sun low along the street,
+      // everything down it overlapped the square and was drawn.
+      const depth = SHADOW_BACK + dx * fwd.x + dy * fwd.y + dz * fwd.z;
+      if (depth + rs > SHADOW_NEAR && depth - rs < SHADOW_FAR) list.push(m);
     }
   }
 
@@ -275,7 +280,7 @@ export class Graphics {
     sun.autoUpdateExtends = false;
     sun.orthoLeft = -SHADOW_EXTENT; sun.orthoRight = SHADOW_EXTENT;
     sun.orthoTop = SHADOW_EXTENT; sun.orthoBottom = -SHADOW_EXTENT;
-    sun.shadowMinZ = 1; sun.shadowMaxZ = 140;
+    sun.shadowMinZ = SHADOW_NEAR; sun.shadowMaxZ = SHADOW_FAR;
     const sg = new ShadowGenerator(p.shadow, sun);
     sg.bias = 0.0008;
     sg.normalBias = 0.02;
