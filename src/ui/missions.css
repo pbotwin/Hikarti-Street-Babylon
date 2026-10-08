@@ -6,7 +6,7 @@
   border-left: 3px solid #ffd38b; backdrop-filter: blur(9px); color: #fff9ee;
   display: flex; flex-direction: column; gap: 5px; text-shadow: 0 1px 4px #16202e;
 }
-.mission-tracker-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; align-items: center; font-size: 8px; letter-spacing: .13em; color: #f8d596; }
+.mission-tracker-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; align-items: center; font-size: 9px; letter-spacing: .13em; color: #f8d596; }
 .mission-wallet { font-size: 10px; letter-spacing: 0; font-weight: 600; white-space: nowrap; }
 .mission-tracker-title { font: 600 19px/1.2 var(--serif, Georgia, serif); }
 .mission-tracker-objective { font-size: 11px; line-height: 1.45; opacity: .94; }
@@ -55,10 +55,10 @@
 @keyframes mission-dialog-in { from { opacity: 0; transform: translateY(12px); } }
 @media (max-width: 600px) {
   .mission-tracker { width: min(228px, 65vw); top: calc(87px + var(--sat)); left: calc(9px + var(--sal)); padding: 9px 10px; }
-  .mission-tracker-top { font-size: 7px; letter-spacing: .08em; }
+  .mission-tracker-top { font-size: 9px; letter-spacing: .06em; }
   .mission-tracker-title { font-size: 17px; }
   .mission-tracker-objective { font-size: 10px; }
-  .mission-tracker-bottom { font-size: 8px; }
+  .mission-tracker-bottom { font-size: 9.5px; }
   .mission-dialog { padding: 20px; }
   .mission-dialog p { font-size: 13px; line-height: 1.5; }
 }

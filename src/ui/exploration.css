@@ -39,7 +39,8 @@
 .map-legend .shop { background: linear-gradient(135deg, #e79ab4, #59b37a 50%, #b98a5e); }
 .minimap.big .map-help { display: block; margin: 6px 20px 16px; text-align: center; font-size: 10px; line-height: 1.5; color: #c1cddd; }
 .sheet-card { max-height: calc(88dvh - var(--sat) - var(--sab)); overflow-y: auto; overscroll-behavior: contain; }
-.sheet-card, .mission-dialog { touch-action: pan-y; }
+/* Scrolling panels (MobileInput.js SCROLLABLE lets their touches through). */
+.sheet-card, .mission-dialog, .mall-receipt-card, .mall-panel, .basket-panel, .seat-panel { touch-action: pan-y; }
 .track-mission { align-self: flex-start; margin-top: 10px; padding: 6px 10px; border: 1px solid #77e9c050; border-radius: 7px; background: #77e9c010; color: #baf4de; font: inherit; font-size: 11px; cursor: pointer; }
 .journal-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 22px; }
 .journal-heading h3 { margin: 0; font-family: var(--serif); font-size: 18px; font-weight: 600; }

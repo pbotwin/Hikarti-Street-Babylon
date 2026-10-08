@@ -290,6 +290,7 @@ export class InteriorSystem {
     this.cameraRig.zoomTarget = 0.72;
     document.documentElement.dataset.interior = kind;
     this.hint.textContent = `${spot.name} · walk back out through the door to leave`;
+    this.hint.classList.remove('hidden');
     this._chime();
     this.state.emit('shop:open', { shop: spot.shop, name: spot.name });
     this.state.emit('interior:enter', { name: spot.name, kind });
@@ -315,6 +316,7 @@ export class InteriorSystem {
     this.inside = null;
     this.busy = false;
     this.anims.length = 0;
+    this.hint.classList.add('hidden');
     if (quiet) return;
     this.cameraRig.zoomTarget = 1;
     delete document.documentElement.dataset.interior;
@@ -1222,7 +1224,6 @@ export class InteriorSystem {
     this._label = label;
     this.prompt.classList.toggle('hidden', !label);
     if (label) this.prompt.querySelector('.mission-action-label').textContent = label;
-    this.hint.classList.toggle('hidden', !this.inside);
   }
 
   _renderBasket() {

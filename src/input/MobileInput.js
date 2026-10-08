@@ -11,6 +11,7 @@
  */
 const JOY_RADIUS = 62; // px — knob travel
 const DEADZONE = 0.12;
+const SCROLLABLE = '.sheet-card, .mission-dialog, .mall-receipt-card, .mall-panel, .basket-panel, .seat-panel';
 
 export class MobileInput {
   constructor(root) {
@@ -186,7 +187,8 @@ export class MobileInput {
 
     // Stop iOS rubber-banding / double-tap zoom on the game surface.
     document.addEventListener('touchmove', (e) => {
-      if (e.target.closest?.('.sheet-card, .mission-dialog')) return;
+      // Panels that scroll (same list as their touch-action: pan-y in exploration.css).
+      if (e.target.closest?.(SCROLLABLE)) return;
       e.preventDefault();
     }, opts);
     document.addEventListener('gesturestart', (e) => e.preventDefault());

@@ -277,7 +277,8 @@ async function boot() {
     portal.update(dt, player, gfx);
     character.update(dt);
     audio.update(dt, player, camera, world);
-    ui.update(dt, player, world);
+    // District cards follow the street (rooms sit far outside every district).
+    if (!interiors.inside) ui.update(dt, player, world);
     minimap.update(dt);
   }
 }

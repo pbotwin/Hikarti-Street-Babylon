@@ -24,6 +24,8 @@ export class MallMode {
     this._starting = false;
     this._buildDom();
     deps.state.on('ui:mall', () => this.start());
+    // Settings' "Leave the mall": the trip ends as if she drove off (the receipt).
+    deps.state.on('ui:mall-leave', () => this.finish());
   }
 
   /** Controls belong to an animation (paying, trying on, loading the boot). */

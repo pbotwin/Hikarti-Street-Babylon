@@ -8,6 +8,9 @@ import { offerAndroidApp, ANDROID_APP_PAGE } from '../core/platform.js';
  * a vertical menu (Settings / Bag / Quests / Map) under the minimap, and the
  * small glass sheets those buttons open.
  */
+/** A shopping trip is running (MallMode sets the document's mode). */
+const inMall = () => document.documentElement.dataset.mode === 'mall';
+
 const ICONS = {
   sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M5.3 18.7L7 17M17 7l1.7-1.7"/></g></svg>',
   gear: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.8 1.7 1l.4 2.5h4l.4-2.5c.6-.2 1.2-.6 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>',
@@ -68,7 +71,8 @@ export class HudMenu {
     const keys = { KeyM: 'map', KeyB: 'bag', KeyQ: 'quests' };
     addEventListener('keydown', (e) => {
       if (e.repeat || hud.classList.contains('hidden')) return;
-      if (keys[e.code]) this.toggle(keys[e.code]);
+      // Map, Bag and Quests are the city's; a shopping trip has only Settings.
+      if (keys[e.code] && !inMall()) this.toggle(keys[e.code]);
       else if (e.code === 'Escape') this.close();
     });
   }
@@ -187,12 +191,13 @@ export class HudMenu {
       this.sheetBody.innerHTML = `
         ${this.graphics ? this._graphicsRow() : ''}
         ${this.adaptive ? this._fpsRow() : ''}
-        ${offerAndroidApp ? `<label class="row"><span>Android app<small class="row-sub">Full screen, stays cooler</small></span><a class="pill" href="${ANDROID_APP_PAGE}">Get it</a></label>` : ''}
-        <label class="row"><span>Sound</span><button class="pill sound">${muted ? 'Off' : 'On'}</button></label>
-        <label class="row"><span>Voices</span><button class="pill voices">${({ natural: 'Natural', device: 'Device', off: 'Off' })[this.voices?.mode] || 'Natural'}</button></label>
-        ${this.saves ? `<label class="row"><span>Game<small class="row-sub save-when">${this._savedText()}</small></span><button class="pill save-now">Save now</button></label>
-        <label class="row"><span>Quit to title<small class="row-sub">Your game is saved first</small></span><button class="pill quit-title">Quit</button></label>` : ''}
-        <label class="row"><span>New game<small class="row-sub">Start the exploration over</small></span><button class="pill restart-now">Restart</button></label>`;
+        ${offerAndroidApp ? `<div class="row"><span>Android app<small class="row-sub">Full screen, stays cooler</small></span><a class="pill" href="${ANDROID_APP_PAGE}">Get it</a></div>` : ''}
+        <div class="row"><span>Sound</span><button class="pill sound">${muted ? 'Off' : 'On'}</button></div>
+        <div class="row"><span>Voices</span><button class="pill voices">${({ natural: 'Natural', device: 'Device', off: 'Off' })[this.voices?.mode] || 'Natural'}</button></div>
+        ${inMall() ? `<div class="row"><span>Leave the mall<small class="row-sub">End the trip: the receipt, then the title</small></span><button class="pill leave-mall">Leave</button></div>` : `
+        ${this.saves ? `<div class="row"><span>Game<small class="row-sub save-when">${this._savedText()}</small></span><button class="pill save-now">Save now</button></div>
+        <div class="row"><span>Quit to title<small class="row-sub">Your game is saved first</small></span><button class="pill quit-title">Quit</button></div>` : ''}
+        <div class="row"><span>New game<small class="row-sub">Start the exploration over</small></span><button class="pill restart-now">Restart</button></div>`}`;
       // Voices: Natural (neural, best) → Device (built-in, light) → Off.
       this.sheetBody.querySelector('.voices')?.addEventListener('click', (e) => {
         if (!this.voices) return;
@@ -212,7 +217,8 @@ export class HudMenu {
         this.adaptive.setMode(b.dataset.fps);
         this._render('settings');
       }));
-      this.sheetBody.querySelector('.restart-now').addEventListener('click', (e) => {
+      this.sheetBody.querySelector('.leave-mall')?.addEventListener('click', () => { this.close(); this.state.emit('ui:mall-leave'); });
+      this.sheetBody.querySelector('.restart-now')?.addEventListener('click', (e) => {
         // Starting over replaces the save: ask with a second tap.
         const b = e.currentTarget;
         if (!b.classList.contains('confirm')) { b.classList.add('confirm'); b.textContent = 'Sure?'; return; }

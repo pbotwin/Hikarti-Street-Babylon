@@ -739,7 +739,7 @@ export class MallShopping {
     if (!items.length && !held) { hud.panel('cart', null); this._panelEl = null; return; }
     const total = totalOf(items);
     const el = hud.panel('cart', `
-      <div class="basket-head"><b>🛒 Cart · ${items.length}</b><span>${total} ◈</span></div>
+      <div class="basket-head">${items.length ? `<b>🛒 Cart · ${items.length}</b><span>${total} ◈</span>` : `<b>✋ ${esc(held.p.name)}</b><span>${held.p.price} ◈</span>`}</div>
       <div class="basket-items">${items.map((e, i) => `<div class="basket-item"><span>${ICON.take}</span><b>${esc(e.p.name)}</b><i>${e.p.price} ◈</i><button class="put" data-out="${i}" aria-label="Take out">✕</button></div>`).join('')}</div>
       <small>${held ? `In your hand: ${esc(held.p.name)} · back on its shelf, or in the cart` : 'Pay at a checkout · ✕ takes it out'}</small>`);
     if (el !== this._panelEl) {
