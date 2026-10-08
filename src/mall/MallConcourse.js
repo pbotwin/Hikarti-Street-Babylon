@@ -247,7 +247,8 @@ function furniture(cast, still, M, signs) {
     cast.cylinder(M.satin, C.stone, t.x, 0, t.z, t.r, 0.4, 28);
     cast.cylinder(M.satin, C.oak, t.x, 0.4, t.z, t.r + 0.02, 0.06, 28);
     cast.cylinder(M.gloss, C.charcoal, t.x, 0.46, t.z, t.r - 0.45, 0.44, 24);
-    still.cylinder(M.matte, C.soil, t.x, 0.88, t.z, t.r - 0.5, 0.02, 24);
+    // Soil sunk 1.5 cm into the rim: level with its top (0.9 m) the two fought.
+    still.cylinder(M.matte, C.soil, t.x, 0.865, t.z, t.r - 0.5, 0.02, 24);
     for (let i = 0; i < 5; i++) {
       const a = i * 1.26 + 0.3;
       cast.sphere(M.matte, C.leaf, t.x + Math.cos(a) * (t.r - 0.8), 1.05, t.z + Math.sin(a) * (t.r - 0.8), 0.32, 0.7, 6);

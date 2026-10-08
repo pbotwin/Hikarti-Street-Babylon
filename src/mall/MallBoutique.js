@@ -196,10 +196,11 @@ function till(site, cast, still, M, signs) {
   site.collide(T.x0 - 0.04, T.z0 - 0.04, T.x1 + 0.04, T.z1 + 0.04, 0, T.h);
   // Back shelf (bags, tissue) and the shop's name on the pink wall behind.
   const bx = BOUTIQUE.x0;
-  still.panel(M.satin, C.pink, bx + 0.012, mid, [1, 0], T.z1 - T.z0 + 1.6, 0, 3.2);
+  // Panel and sign a centimetre apart (they were 2-3 mm and fought from across the store).
+  still.panel(M.satin, C.pink, bx + 0.02, mid, [1, 0], T.z1 - T.z0 + 1.6, 0, 3.2);
   for (const y of [0.9, 1.35, 1.8]) cast.box(M.satin, C.oak, bx, y - 0.03, T.z0 - 0.4, bx + 0.42, y, T.z1 + 0.4);
   for (const z of [T.z0 - 0.4, T.z1 + 0.4]) cast.box(M.satin, C.oak, bx, 0, z - 0.02, bx + 0.42, 1.8, z + 0.02);
-  still.panel(signs.material, C.white, bx + 0.015, mid, [1, 0], 3.6, 2.2, 2.82, signs.rect('style'));
+  still.panel(signs.material, C.white, bx + 0.03, mid, [1, 0], 3.6, 2.2, 2.82, signs.rect('style'));
   site.collide(bx, T.z0 - 0.42, bx + 0.42, T.z1 + 0.42, 0, 1.8);
 }
 

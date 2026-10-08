@@ -207,7 +207,7 @@ function checkout({ site, cast, still, M }, cx, i, signs) {
   const K = CHECKOUT, x0 = cx - K.w / 2, x1 = cx + K.w / 2;
   cast.box(M.gloss, C.snow, x0, 0.1, K.z0, x1, K.h - 0.04, K.z1);
   cast.box(M.satin, C.dark, x0 + 0.03, 0, K.z0 + 0.03, x1 - 0.03, 0.1, K.z1 - 0.03);
-  still.box(M.satin, C.green, x1, 0.6, K.z0, x1 + 0.005, 0.7, K.z1);
+  still.box(M.satin, C.green, x1, 0.6, K.z0, x1 + 0.012, 0.7, K.z1);    // 5 mm proud fought with the counter from across the store
   cast.box(M.metal, C.steel, x0, K.h - 0.04, K.z0, x1, K.h, K.z1);
   // Belt between metal ledges; the divider bar rests on the ledge.
   still.box(M.matte, C.rubber, cx - 0.28, K.h, K.beltTo, cx + 0.28, K.h + 0.015, K.beltFrom);
@@ -298,7 +298,8 @@ function endCap({ site, cast, still, M, signs }, line, z, s, sign) {
       still.panel(M.matte, C.white, x + cw / 2, fz - s * 0.03, [0, s], cw * 0.6, y + 0.08, y + 0.2);
     }
   }
-  for (const x of [line.x0 + 0.06, line.x1 - 0.06]) cast.box(M.metal, C.steel, x - 0.02, 0.3, Math.min(fz - s * 0.06, fz - s * 0.02), x + 0.02, 2.25, Math.max(fz - s * 0.06, fz - s * 0.02));
+  // Posts 1 cm inside the board's faces (flush, their faces fought with it).
+  for (const x of [line.x0 + 0.06, line.x1 - 0.06]) cast.box(M.metal, C.steel, x - 0.02, 0.3, Math.min(fz - s * 0.05, fz - s * 0.03), x + 0.02, 2.25, Math.max(fz - s * 0.05, fz - s * 0.03));
   cast.box(M.satin, C.red, line.x0, 1.85, Math.min(fz - s * 0.06, fz - s * 0.02), line.x1, 2.3, Math.max(fz - s * 0.06, fz - s * 0.02));
   still.panel(signs.material, C.white, (line.x0 + line.x1) / 2, fz - s * 0.008, [0, s], Math.min(w - 0.1, 1.15), 1.88, 2.27, signs.rect(sign));
   site.collide(line.x0, za, line.x1, zb, 0, 1.2);
@@ -325,7 +326,8 @@ function promotions({ site, cast, still, M, signs }) {
   }
   for (const x of [H.x0 + 0.2, H.x1 - 0.2]) cast.cylinder(M.metal, C.steel, x, 0.25, hz, 0.025, 2.2, 6);
   cast.box(M.satin, C.orange, H.x0 + 0.15, 1.75, hz - 0.03, H.x1 - 0.15, 2.45, hz + 0.03);
-  for (const f of [-1, 1]) still.panel(signs.material, C.white, hx, hz + f * 0.032, [0, f], H.x1 - H.x0 - 0.4, 1.78, 2.42, signs.rect('harvest'));
+  // Prints a centimetre off the board (2 mm fought with it).
+  for (const f of [-1, 1]) still.panel(signs.material, C.white, hx, hz + f * 0.04, [0, f], H.x1 - H.x0 - 0.4, 1.78, 2.42, signs.rect('harvest'));
   site.collide(H.x0, H.z0, H.x1, H.z1, 0, 0.6);
   // Special offers over the middle cross aisle.
   const mz = (RUNS[0][1] + RUNS[1][0]) / 2;
