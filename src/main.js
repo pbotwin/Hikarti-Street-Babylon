@@ -109,7 +109,7 @@ async function boot() {
   const saves = new SaveSystem({ state, player, cameraRig, collectibles, portal, missions, vehicles, world, collision, audio, ui, shops });
   const hudMenu = new HudMenu(document.getElementById('ui'), { state, collectibles, audio, minimap, missions, input, graphics: settings, adaptive, saves, shops });
   // Shopping mode: trips to Hikari Mall from the title screen.
-  const mall = new MallMode({ scene, engine, camera, graphics, collision, state, ui, input, player, character, animation, cameraRig, vehicles, shops, audio, world, npcs, effects });
+  const mall = new MallMode({ scene, engine, camera, graphics, collision, state, ui, input, player, character, animation, cameraRig, vehicles, shops, audio, world, npcs, effects, saves });
   // Resident voices: settings toggle, and the game's mute switch.
   hudMenu.voices = npcs.voices;
   // What residents can tell her about: fragments, open missions, the portal.
@@ -149,6 +149,9 @@ async function boot() {
   state.on('ui:restart', () => state.reset());
   // Quit to title (game already saved): back to the title orbit.
   state.on('ui:quit', () => {
+    // On foot and outdoors for the title (and a shopping trip from it).
+    vehicles.leaveNow();
+    if (interiors.inside) interiors.leave(true);
     cameraRig.targetYaw = player.yaw - Math.PI * 0.72;
     state.setPhase(Phase.TITLE);
   });

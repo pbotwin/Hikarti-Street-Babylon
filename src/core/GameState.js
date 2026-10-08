@@ -16,6 +16,7 @@ export class GameState {
     this.fragmentsTotal = 5;
     this.fragmentsCollected = 0;
     this.portalActive = false;
+    this.trip = false;            // a shopping trip is running (MallMode): not a playthrough
     this._listeners = new Map();
   }
 

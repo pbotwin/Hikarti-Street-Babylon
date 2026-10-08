@@ -49,7 +49,8 @@ export class SaveSystem {
     }
 
     this._events();
-    const flush = () => { if (this.current) this.saveNow(); };
+    // Not mid shopping trip: she is in the mall, not where the city game left her.
+    const flush = () => { if (this.current && !this.state.trip) this.saveNow(); };
     addEventListener('pagehide', flush);
     addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
   }
@@ -66,12 +67,26 @@ export class SaveSystem {
 
   /** Continue: load the stored save into the world (once), then play. */
   continueGame() {
-    if (!this.current && this.stored) {
-      this._apply(this.stored);
-      this.current = this.stored;
-      this.applied = true;
-    }
+    this._load();
     if (!this.current) this._beginRun();
+  }
+
+  /**
+   * A shopping trip ended: `add` puts its purchases into the playthrough
+   * (loaded first when it is only on disk, else Continue would load it
+   * over them), then it is saved. No playthrough at all: they stay for now.
+   */
+  keepTrip(add) {
+    this._load();
+    add();
+    if (this.current) this.saveNow();
+  }
+
+  _load() {
+    if (this.current || !this.stored) return;
+    this._apply(this.stored);
+    this.current = this.stored;
+    this.applied = true;
   }
 
   /** New Game: wipe the playthrough (lifetime stats stay) and start fresh. */
@@ -151,8 +166,10 @@ export class SaveSystem {
     state.on('ui:load', () => { this.continueGame(); state.emit('ui:start'); });
     state.on('ui:new', () => { this.newGame(); state.emit('ui:start'); });
     // Started some other way (?autostart, tests): play a fresh, unsaved-yet run.
+    // A shopping trip is not a playthrough (starting one here wrote an empty
+    // game over the stored save).
     state.on('phase', ({ phase }) => {
-      if (phase === Phase.PLAYING && !this.current) this._beginRun();
+      if (phase === Phase.PLAYING && !this.current && !state.trip) this._beginRun();
       if (phase === Phase.TITLE) this.ui.setSaveInfo?.(this.summary());
     });
     // Restart (menu, completion screen) and New Game: a new playthrough.

@@ -232,8 +232,13 @@ export class VehicleSystem {
     return this.active && this.phase !== 'exit' ? this.active.engineState() : null;
   }
 
-  reset() {
+  /** Out of the vehicle at once (quitting to the title). */
+  leaveNow() {
     if (this.active) this._finishExit(true);
+  }
+
+  reset() {
+    this.leaveNow();
     for (const v of this.vehicles) v.reset();
     this._attachFragments();
   }

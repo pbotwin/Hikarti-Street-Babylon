@@ -35,6 +35,9 @@ export class MallMode {
     const d = this.deps;
     if (this.active || this._starting || d.state.phase !== Phase.TITLE) return;
     this._starting = true;
+    // A trip, not a playthrough (SaveSystem): where she stood in the city to come back to.
+    d.state.trip = true;
+    this._from = { x: d.player.position.x, z: d.player.position.z, yaw: d.player.yaw };
     d.ui.showLoading();
     d.ui.setLoading(0.05, 'Driving to Hikari Mall…');
     this._sleep();
@@ -94,7 +97,6 @@ export class MallMode {
   _leave() {
     const d = this.deps;
     this.dom.receipt.hidden = true;
-    d.shops.addMallPurchases(this.wallet.receipt);
     for (const m of [...this.modules].reverse()) m.dispose();
     this.modules = [];
     this.ctx = null;
@@ -106,8 +108,11 @@ export class MallMode {
     d.player.hold = false;
     d.animation.act.hands = null;
     this._wake();
-    const s = d.world.spawn;
+    // Back where she was, then the purchases join the saved game (saved there).
+    const s = this._from;
     d.player.spawn(s.x, s.z, s.yaw);
+    d.state.trip = false;
+    d.saves.keepTrip(() => d.shops.addMallPurchases(this.wallet.receipt));
     d.cameraRig.snapBehind(d.player);
     d.cameraRig.targetYaw = d.cameraRig.yaw = d.player.yaw - Math.PI * 0.72;
     d.state.setPhase(Phase.TITLE);
