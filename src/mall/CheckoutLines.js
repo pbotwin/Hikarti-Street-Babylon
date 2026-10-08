@@ -6,6 +6,8 @@
  * steps up to the register to pay while the next one starts unloading.
  * Goods set down on a belt ride it to its end and queue there; the lane's
  * cashier (`cashier(good, done)`, Checkouts.server) takes each one off.
+ * She queues in the same line (`her`): whoever stands ahead of her goes
+ * first, whoever is behind her waits until she is done.
  */
 const BELT_SPEED = 0.32;   // m/s
 
@@ -33,12 +35,12 @@ export class CheckoutLine {
     this.members = [];      // waiting, front first (the front one unloads)
     this.paying = null;     // at the register
     this.riding = [];       // goods on the belt: { g, t, served }
-    this.blocked = false;   // she is using this checkout (set by the shoppers each frame)
+    this.her = null;        // her position while she waits her turn or checks out here (set by the shoppers each frame), else null
     this.cashier = null;    // takes a good off the belt's end: (good, done) => void
   }
 
   /** People in it, for choosing the shortest line. */
-  get size() { return this.members.length + (this.paying ? 1 : 0) + (this.blocked ? 2 : 0); }
+  get size() { return this.members.length + (this.paying ? 1 : 0) + (this.her ? 2 : 0); }
 
   join(s) { if (!this.members.includes(s)) this.members.push(s); }
 
@@ -54,8 +56,18 @@ export class CheckoutLine {
     this.paying = s;
   }
 
-  /** May `s` step up to unload now (front of the line, register free enough)? */
-  canUnload(s) { return this.members[0] === s && !this.blocked; }
+  /** May `s` step up to unload now (front of the line, and not behind her)? */
+  canUnload(s) { return this.members[0] === s && (!this.her || this._along(s.position) > this._along(this.her)); }
+
+  /** Is someone ahead of `p` in the line (paying, unloading, nearer the register) or still on the belt? */
+  aheadOf(p) {
+    if (this.paying || this.riding.length) return true;
+    for (const m of this.members) if (this._along(m.position) > this._along(p)) return true;
+    return false;
+  }
+
+  /** How far along the line toward the register a point is. */
+  _along(p) { return (p.x - this.unload.x) * this.dir.x + (p.z - this.unload.z) * this.dir.z; }
 
   /** Where member `s` should stand (into `out`, with the facing). */
   spotOf(s, out) {

@@ -50,8 +50,9 @@ export class Cashier {
           goal = to();
           from = { x: this.at.x, z: this.at.z, yaw: this.at.yaw };
           t = 0;
-          // A practised step along her counter (~1.8 m/s at most, eased).
-          d = Math.max(0.25, Math.hypot(goal.x - from.x, goal.z - from.z) / 1.2, Math.abs(wrap(goal.yaw - from.yaw)) / 4);
+          // A practised step along her counter (~2.4 m/s at most, eased: at
+          // ~1.8 she kept customers waiting at the end of the belt).
+          d = Math.max(0.2, Math.hypot(goal.x - from.x, goal.z - from.z) / 1.6, Math.abs(wrap(goal.yaw - from.yaw)) / 6);
         }
         t += dt;
         const m = ease(t / d);

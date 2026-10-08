@@ -82,6 +82,7 @@ layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
     till: { stand: { x, z, yaw }, register: [x,y,z], cashier: { x, z, yaw } },
   },
   nav: { nodes: [[x, z], …], links: [[a, b], …] },   // walkable graph (shoppers, carts): lot, courts, concourse, both shops
+  //   MallWorld builds one MallNav on it (`world.nav`), shared by the shoppers and her scripted walks
   lot: { bays: [{ x, z, yaw }], walkways: [{ x0, z0, x1, z1 }] },
   concourse: {
     zone: { x0, z0, x1, z1 },                          // the ground floor's walk between the shop row and the anchors

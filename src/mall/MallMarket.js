@@ -237,11 +237,16 @@ function checkout({ site, cast, still, M }, cx, i, signs) {
   for (const [fz, d] of [[1, 0.041], [-1, -0.041]]) still.panel(signs.material, C.white, lx, lz + d, [0, fz], 0.32, K.h + 1.42, K.h + 1.74, signs.rect(`lane${i + 1}`));
   site.collide(x0, K.z0 - 0.5, x1, K.z1, 0, K.h + 0.05);
   site.collide(cx - 1.45, K.z0 + 0.8, cx - 1.4, K.z0 + 3.4, 0, 1.1);
-  // The sweet rack at the lane's start, facing the queue.
-  const r0 = K.z1 + 0.05, r1 = K.z1 + 0.95;
-  cast.box(M.satin, C.red, cx - 0.2, 0, r0, cx + 0.2, 1.32, r1);
-  for (const [y0, y1] of [[0.18, 0.62], [0.68, 1.12]]) still.panel(signs.print, C.white, cx + 0.205, (r0 + r1) / 2, [1, 0], r1 - r0 - 0.06, y0, y1, signs.rect('candy'));
-  site.collide(cx - 0.2, r0, cx + 0.2, r1, 0, 1.32);
+  // The sweet rack at the lane's start: stocked on both lanes' sides and on
+  // its end toward the queue, and no higher than the counter's screens (at
+  // 1.32 m it hid her and the belt from the camera behind her at the till).
+  const r0 = K.z1 + 0.05, r1 = K.z1 + 0.95, H = 0.95, candy = signs.rect('candy');
+  cast.box(M.satin, C.red, cx - 0.2, 0, r0, cx + 0.2, H, r1);
+  for (const [y0, y1] of [[0.08, 0.5], [0.5, 0.92]]) {
+    for (const s of [1, -1]) still.panel(signs.print, C.white, cx + s * 0.205, (r0 + r1) / 2, [s, 0], r1 - r0 - 0.06, y0, y1, candy);
+  }
+  for (let y = 0.07; y < H - 0.1; y += 0.17) still.panel(signs.print, C.white, cx, r1 + 0.005, [0, 1], 0.34, y, y + 0.17, candy);
+  site.collide(cx - 0.2, r0, cx + 0.2, r1, 0, H);
 }
 
 /** The cart corral in the hall: two chrome rails and an end stop (MallShopping parks the carts in its slots). */

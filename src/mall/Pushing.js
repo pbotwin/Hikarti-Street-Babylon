@@ -1,4 +1,5 @@
 import { MathUtils } from '../player/math.js';
+import { PULL_BACK } from './Cart.js';
 
 /**
  * Her pushing a shopping cart, as PlayerController's ride (the hook the
@@ -8,10 +9,11 @@ import { MathUtils } from '../player/math.js';
  * owns her pose here rather than following her: her hands are set on the
  * handle in the same frame the cart moves (no lag behind it), she turns as
  * the cart turns about its back wheels, and where the cart can't go, she
- * can't either. No jumping while pushing.
+ * can't either. Pulled straight back, it rolls back slowly. No jumping
+ * while pushing.
  *
- * drive(x, z, done) pushes the cart's centre to a point by itself (along
- * the checkout lane).
+ * drive(x, z, done) pushes (or pulls back) the cart's centre to a point by
+ * itself (along the checkout lane, into a corral).
  */
 const _l = [0, 0, 0], _r = [0, 0, 0];
 const clamp = MathUtils.clamp;
@@ -53,8 +55,11 @@ export class Pushing {
     this.player.velocity.set(0, 0, 0);
   }
 
-  /** Push the cart to (x, z) by itself (controls off), then call done(). */
-  drive(x, z, done) { this.auto = { x, z, done, t: 0 }; }
+  /**
+   * Push the cart to (x, z) by itself (controls off), then done(arrived):
+   * false when something kept it from getting there (no closer for a second).
+   */
+  drive(x, z, done) { this.auto = { x, z, done, t: 0, best: Infinity, bestT: 0 }; }
 
   _update(dt, active) {
     const cart = this.cart, pl = this.player;
@@ -67,14 +72,17 @@ export class Pushing {
       const hx = cart.x - _p.x, hz = cart.z - _p.z;   // her pushing direction
       const ex = a.x - cart.x, ez = a.z - cart.z, d = Math.hypot(ex, ez);
       a.t += dt;
-      if (d < 0.08 || a.t > 8) {
+      if (d < a.best - 0.01) { a.best = d; a.bestT = a.t; }
+      if (d < 0.08 || a.t - a.bestT > 1.5) {
         this.auto = null;
         cart.speed = 0; cart.turn = 0;
-        a.done();
+        a.done(d < 0.08);
       } else {
         heading = Math.atan2(ex, ez);
-        // Ease into the stop; a gentle push.
-        amount = clamp(d * 1.4, 0.15, 0.55) * (Math.abs(wrap(heading - Math.atan2(hx, hz))) < 1.2 ? 1 : 0.4);
+        // Ease into the stop; a brisk push (a slow one made the lane's last
+        // metres to the register take 6 s), gentler while it swings round.
+        const c = Math.cos(heading - Math.atan2(hx, hz));
+        amount = clamp(d * 1.8, 0.2, 1) * (c > 0.36 || c < PULL_BACK ? 1 : 0.4);
       }
     } else if (active) {
       const mv = this.input.move, cy = this.cameraRig.yaw;

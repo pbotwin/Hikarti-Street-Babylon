@@ -7,15 +7,17 @@ import { ease, lerp } from './Timeline.js';
  * her bay with an opening tailgate (CarModel's boot lid). She opens it by
  * the handle and steps back as it rises on its struts, lifts each shopping
  * bag out of her cart and sets it on the boot floor, and pulls the lid down
- * until it drops shut. The bags ride along in the boot; she gets in with the
- * normal vehicle entry and drives off: entering the lot's exit ends the
- * trip. The car stays locked while she pushes a cart or the boot is open.
+ * until it drops shut. Bags in her hand (the clothing store's) go straight
+ * in: her left hand opens the lid then. The bags ride along in the boot;
+ * she gets in with the normal vehicle entry and drives off: entering the
+ * lot's exit ends the trip. The car stays locked while she pushes a cart or
+ * the boot is open (the prompt says so by its doors).
  */
 const OPEN_Z = -2.05;            // car space: where she stands to open / load (behind the bumper)
 const BACK_Z = -3.25;            // clear of the lid's swing (closing)
 const RIM = 0.99;                // a cart basket's top rim, which a bag is lifted over
 const SLOTS = [[0.34, -1.38], [0, -1.38], [-0.34, -1.38], [0.34, -1.12], [0, -1.12], [-0.34, -1.12]];   // bags on the boot floor
-const _a = [0, 0, 0], _w = new Vector3(), _h = new Vector3(), _o = new Vector3(), _ax = new Vector3(), _ay = new Vector3(), _az = new Vector3();
+const _a = [0, 0, 0], _w = new Vector3(), _h = new Vector3(), _c = new Vector3(), _o = new Vector3(), _ax = new Vector3(), _ay = new Vector3(), _az = new Vector3();
 const NONE = [];
 
 export class Boot {
@@ -26,6 +28,7 @@ export class Boot {
     this.k = 0;              // lid 0 shut .. 1 open
     this.loaded = [];        // bags in the boot: { e, x, y, z, yaw } (car space, where she set them down)
     this.finished = false;
+    this._left = { wl: 0, wr: 0, l: [0, 0, 0], r: [0, 0, 0] };   // her left hand on the lid (act.hands) while the right holds bags
     const P = (label, icon, priority, run) => ({ label, icon, priority, distance: 0, run });
     this._prompts = {
       open: P('Open the boot', '🚗', 7, () => this.open()),
@@ -92,16 +95,21 @@ export class Boot {
     return n;
   }
 
-  /** Open / load / close, when she is at the back of her car. */
+  /** Open / load / close, when she is at the back of her car; by its doors with the boot open, why it won't start. */
   prompt() {
     const car = this.car, shop = this.shop;
     if (!car || shop.held || shop.clothes) return null;
     this._world(0, 0, OPEN_Z, _w);
     const d = Math.hypot(shop.her.x - _w.x, shop.her.z - _w.z);
-    if (d > (this.k > 0.5 ? 2.2 : 1.6)) return null;
-    const P = this._prompts;
-    if (this.k < 0.5) return shop.bagsInHand ? null : shop._show(P.open, d);
-    if (shop.bagsInHand && this.loaded.length < SLOTS.length) return shop._show(P.stow, d);
+    const P = this._prompts, bags = shop.bagsInHand;
+    if (d > (this.k > 0.5 ? 2.2 : 1.6)) {
+      if (this.k < 0.01) return null;
+      const p = this._toCar(this.ctx.player.position, _c);
+      return Math.abs(p.x) < car.dims.w / 2 + 1 && Math.abs(p.z) < car.dims.len / 2 + 1
+        ? shop.hint('Close the boot first', 'The car won’t start with its boot open', d) : null;
+    }
+    if (this.k < 0.5) return shop._show(bags ? P.stow : P.open, d);
+    if (bags && this.loaded.length < SLOTS.length) return shop._show(P.stow, d);
     const cart = shop.mine;
     const cartNear = cart && Math.hypot(cart.x - _w.x, cart.z - _w.z) < 4;
     if (cartNear && this._bagCount() && this.loaded.length < SLOTS.length) return shop._show(P.load, d);
@@ -135,33 +143,43 @@ export class Boot {
   }
 
 
-  /** Unlatch by the handle, lift a little, step back as the struts take it up. */
-  open() {
-    const shop = this.shop, her = shop.her, act = this.ctx.animation.act;
+  /**
+   * Unlatch by the handle, lift a little, step back as the struts take it
+   * up; then `then`. With bags in her right hand, her left hand does it.
+   */
+  open(then = null) {
+    const shop = this.shop, her = shop.her, act = this.ctx.animation.act, left = shop.bagsInHand;
+    // Her palm on the handle with weight w: the right hand's reach, or the left on its own.
+    const palm = (x, y, z, w) => {
+      if (!left) { her.palmTo(x, y, z, w); return; }
+      const h = this._left;
+      h.l[0] = x; h.l[1] = y; h.l[2] = z; h.wl = w;
+      act.hands = w > 0.001 ? h : null;
+    };
     this._goBehind(OPEN_Z, 0, () => {
       const crouch = Her.crouchFor(this.car.boot.handle[1]) * 0.7;
       let x0 = 0, z0 = 0;
       shop.tl.play([
-        { d: 0.4, step: (k) => {
+        { d: 0.3, step: (k) => {
           this._handle(0, _h);
           act.crouch = crouch * ease(k);
-          her.palmTo(_h.x, _h.y + 0.02, _h.z, ease(k));
+          palm(_h.x, _h.y + 0.02, _h.z, ease(k));
         }, done: () => shop.tones.click() },
-        { d: 0.35, step: (k) => {
+        { d: 0.3, step: (k) => {
           this._setLid(0.09 * ease(k));
           this._handle(this.k, _h);
           act.crouch = crouch * (1 - ease(k));
-          her.palmTo(_h.x, _h.y + 0.02, _h.z, 1);
+          palm(_h.x, _h.y + 0.02, _h.z, 1);
         }, done: () => { x0 = her.x; z0 = her.z; this._world(0, 0, BACK_Z + 0.15, _w); } },
         // Struts: slow off the latch, quick through the middle, easing to the stop.
-        { d: 1.3, step: (k) => {
+        { d: 1.1, step: (k) => {
           this._setLid(0.09 + 0.91 * ease(Math.min(1, k * 1.05)) + Math.sin(Math.min(1, k * 1.05) * Math.PI) * 0.02);
           this._handle(this.k, _h);
-          her.palmTo(_h.x, _h.y + 0.02, _h.z, 1 - ease(k / 0.25));
+          palm(_h.x, _h.y + 0.02, _h.z, 1 - ease(k / 0.25));
           const m = ease(k / 0.5);
           her.place(lerp(x0, _w.x, m), lerp(z0, _w.z, m), this.car.yaw);
         }, done: () => { this._setLid(1); shop.tones.lid(); } },
-      ], () => this._done());
+      ], () => { this._done(); then?.(); });
     });
   }
 
@@ -185,15 +203,15 @@ export class Boot {
     shop.tl.play([
       ...(pushing ? shop._handsOff(cart) : []),
       shop._go(() => shop._cartStance(cart, e.cur.z, {})),
-      ...shop._move(false, () => ({ x: e.x, y: Math.max(RIM, e.y + e.handle) + 0.06, z: e.z }), 0.1, 0.04, 0.4),
-      ...shop._move(false, () => ({ x: e.x, y: e.y + e.handle, z: e.z }), 0, 0, 0.3),
+      ...shop._move(false, () => ({ x: e.x, y: Math.max(RIM, e.y + e.handle) + 0.06, z: e.z }), 0.1, 0.04, 0.3),
+      ...shop._move(false, () => ({ x: e.x, y: e.y + e.handle, z: e.z }), 0, 0, 0.2),
       { d: 0, done: () => {
         cart.unstow(e);
         her.hold(e, e.x, e.y, e.z, e.yaw);
         shop.tones.click();
       } },
       // Lifted out over the side, then hanging at her side as she walks.
-      ...shop._move(true, () => ({ x: e.x, y: RIM + 0.04, z: e.z }), 0, 0.03, 0.4),
+      ...shop._move(true, () => ({ x: e.x, y: RIM + 0.04, z: e.z }), 0, 0.03, 0.3),
       ...shop._toSide(),
       // Round the cart to the back of the car.
       shop._go(() => {
@@ -203,14 +221,17 @@ export class Boot {
     ], () => this._setIn(SLOTS[this.loaded.length], then));
   }
 
-  /** The bags she carries in her hand (from the clothing store) straight into the open boot. */
+  /** The bags she carries in her hand (from the clothing store) straight into the boot (opened first). */
   stowCarried() {
     const shop = this.shop;
     const next = () => {
       if (!shop.nextCarried() || this.loaded.length >= SLOTS.length) { this._done(); return; }
       this._setIn(SLOTS[this.loaded.length], next);
     };
-    this._goBehind(OPEN_Z, 0, next);
+    // (Opening it, she steps back from the rising lid: then up to the sill again.)
+    const toSill = () => this._goBehind(OPEN_Z, 0, next);
+    if (this.k < 0.5) this.open(toSill);
+    else toSill();
   }
 
   /**
@@ -224,8 +245,8 @@ export class Boot {
     const at = () => this._world(slot[0], car.boot.floor.y, slot[1], new Vector3());
     shop.tl.play([
       shop._go(() => ({ x: her.x, z: her.z, yaw: car.yaw })),
-      ...shop._move(true, () => { const p = at(); p.y += 0.32; return p; }, 0.2, 0.2, 0.6),
-      ...shop._move(true, () => at(), 0, 0, 0.4),
+      ...shop._move(true, () => { const p = at(); p.y += 0.32; return p; }, 0.2, 0.2, 0.4),
+      ...shop._move(true, () => at(), 0, 0, 0.25),
       { d: 0, done: () => {
         her.carry();
         const yaw = her.heldAt(_h), e = her.letGo();
@@ -242,11 +263,11 @@ export class Boot {
     const shop = this.shop, her = shop.her;
     this._goBehind(BACK_Z, 0, () => {
       shop.tl.play([
-        { d: 0.45, step: (k) => {
+        { d: 0.35, step: (k) => {
           this._handle(1, _h);
           her.palmTo(_h.x, _h.y - 0.02, _h.z, ease(k));
         } },
-        { d: 0.8, step: (k) => {
+        { d: 0.6, step: (k) => {
           this._setLid(1 - 0.55 * ease(k));
           this._handle(this.k, _h);
           her.palmTo(_h.x, _h.y - 0.02, _h.z, 1);
@@ -263,6 +284,7 @@ export class Boot {
   _done() {
     const act = this.ctx.animation.act;
     act.reach = null; act.crouch = 0; act.bag = 0;
+    if (act.hands === this._left) act.hands = null;
     this.shop.her.freeze(false);
   }
 

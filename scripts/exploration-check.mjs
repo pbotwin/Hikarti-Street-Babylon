@@ -98,7 +98,8 @@ try {
   await snapshot('completed-journal');
   await page.keyboard.press('Escape');
   await page.keyboard.press('b');
-  assert.match(await page.locator('.wallet').innerText(), new RegExp(String(expected)));
+  // By now the five fragments have paid too.
+  assert.match(await page.locator('.wallet').innerText(), new RegExp(String(expected + REWARDS.fragment * 5)));
   await page.keyboard.press('Escape');
 
   // Reset must clean up progress and restore both input and the mission props.
@@ -177,11 +178,11 @@ try {
   }
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForTimeout(200);
-  assert.ok(await page.locator('.sheet-card').evaluate((el) => el.scrollTop > 80), 'Touch-scroll quest journal');
+  assert.ok(await page.locator('.sheet:not(.hidden) .sheet-card').evaluate((el) => el.scrollTop > 80), 'Touch-scroll quest journal');
   await session.detach();
-  await page.locator('.sheet-x').tap();
+  await page.locator('.sheet:not(.hidden) .sheet-x').tap();
   const aoi = await npc('aoi'); await go(aoi.x + .75, aoi.z);
-  await page.locator('.mission-action').tap();
+  await page.locator('.mission-action:visible').tap();
   await snapshot('phone-dialogue');
   await page.locator('.mission-choice.primary').tap();
   assert.equal(await status('cafe-delivery'), 'active');

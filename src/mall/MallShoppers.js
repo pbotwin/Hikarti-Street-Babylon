@@ -2,7 +2,6 @@ import { TransformNode, Vector3 } from '@babylonjs/core';
 import { animateResident, setMorph, syncPose } from '../npcs/NPCModels.js';
 import { applyAct, makeBubble, showBubble, updateBubble } from '../npcs/life/Acts.js';
 import { billboard } from '../npcs/Billboard.js';
-import { MallNav } from './MallNav.js';
 import { ShopperGear } from './ShopperGear.js';
 import { ShopperMind } from './ShopperMind.js';
 import { CheckoutLine } from './CheckoutLines.js';
@@ -54,13 +53,12 @@ export class MallShoppers {
     // Who shops today: residents whose characters are loaded, in random order.
     const ids = shuffle(npcs.items.filter((i) => i.vrm && !i.lent).map((i) => i.id)).slice(0, this.max + SPARE);
     this.gear = new ShopperGear(this.ctx, ids.length);
-    this.nav = new MallNav(layout.nav, collision, layout.building.floorY);
     this.lines = (layout.checkouts || []).slice(0, STAFFED).map((c) => new CheckoutLine(c, this.gear));
     this.till = layout.fashion?.till ? new CheckoutLine(layout.fashion.till, this.gear) : null;
     this.cars = parkedCars(layout);
     this.group = new TransformNode('mall shoppers', scene);
     this.group.freezeWorldMatrix();
-    this.mind = new ShopperMind({ layout, nav: this.nav, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers,
+    this.mind = new ShopperMind({ layout, nav: this.ctx.world.nav, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers,
       // The clothing store's fitting rooms (shared with her: `inUse` while someone is in one).
       rooms: () => this.ctx.fashion?.rooms || [] });
     for (const id of ids) {
@@ -158,13 +156,15 @@ export class MallShoppers {
     const pl = this._player, pp = player.position;
     pl.x = pp.x; pl.y = pp.y; pl.z = pp.z;
     const lanes = this.ctx.checkouts?.lanes;
+    // The lanes' and the till's queues, which she joins when she checks out there.
     for (let i = 0; i < this.lines.length; i++) {
-      const l = this.lines[i];
-      l.blocked = herAt(l, pl);
-      if (!l.cashier && lanes?.[i]?.cashier) l.cashier = this.ctx.checkouts.server(lanes[i]);
+      const l = this.lines[i], lane = lanes?.[i];
+      if (!l.cashier && lane?.cashier) { l.cashier = this.ctx.checkouts.server(lane); lane.queue = l; }
+      l.her = lane?.her || null;
       l.update(dt);
     }
-    if (this.till) this.till.blocked = herAt(this.till, pl);
+    const till = this.ctx.fashion?.till;
+    if (this.till && till) { till.queue = this.till; this.till.her = till.her; }
     // Fewer shoppers while the governor says the CPU is busy (it draws residents nearer).
     const scale = npcs.distanceScale ?? 1, range = npcs.viewDistance * scale;
     this._arrivals(dt, Math.round(this.max * Math.min(1, scale)));
@@ -326,11 +326,6 @@ export class MallShoppers {
     this.gear.dispose();
     this.group.dispose();
   }
-}
-
-/** She stands at this checkout (at the register or where the next one unloads): shoppers wait for her. */
-function herAt(line, p) {
-  return Math.hypot(p.x - line.stop.x, p.z - line.stop.z) < 1.3 || Math.hypot(p.x - line.unload.x, p.z - line.unload.z) < 1.3;
 }
 
 /**

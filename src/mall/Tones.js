@@ -18,3 +18,8 @@ export function tone(audio, freqs, { dur = 0.12, type = 'sine', gain = 0.12, gap
     t += dur + gap;
   }
 }
+
+/** The security gate's soft alarm: unpaid goods at a shop's way out. */
+export function alarm(audio) {
+  tone(audio, [988, 784, 988, 784], { dur: 0.16, type: 'triangle', gain: 0.07, gap: 0.04 });
+}

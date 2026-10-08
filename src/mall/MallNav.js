@@ -1,6 +1,6 @@
 /**
  * Routes on the mall's walk graph (`layout.nav`, see MALL.md) for the
- * shoppers: A* between the graph nodes nearest the start and the goal that
+ * shoppers and her scripted walks (MallWorld owns the one instance): A* between the graph nodes nearest the start and the goal that
  * can be reached in a straight line (a node just behind a shelf is near but
  * not reachable). The graph's links are what keeps shoppers and their carts
  * out of the shelves; the collision world only nudges them.
@@ -32,11 +32,18 @@ export class MallNav {
 
   get ready() { return this.nodes.length > 1; }
 
-  /** Nothing in the way on the straight line from (x0, z0) to (x1, z1). */
-  clear(x0, z0, x1, z1) {
+  /**
+   * Nothing in the way on the straight line from (x0, z0) to (x1, z1), or
+   * (`r`) on a band that wide either side of it.
+   */
+  clear(x0, z0, x1, z1, r = 0) {
     const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz);
     if (d < 0.05) return true;
-    return this.collision.raycast(x0, this.y, z0, dx / d, 0, dz / d, d) >= d - 0.05;
+    const ux = dx / d, uz = dz / d, c = this.collision;
+    if (c.raycast(x0, this.y, z0, ux, 0, uz, d) < d - 0.05) return false;
+    if (!r) return true;
+    return c.raycast(x0 + uz * r, this.y, z0 - ux * r, ux, 0, uz, d) >= d - 0.05
+      && c.raycast(x0 - uz * r, this.y, z0 + ux * r, ux, 0, uz, d) >= d - 0.05;
   }
 
   /** The nearest node reachable in a straight line from (x, z) (-1: none of the closest few). */

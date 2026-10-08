@@ -14,7 +14,9 @@ import { tone } from './Tones.js';
  * folds it with both hands (sides in, then in half) and lowers it into the
  * bag. She taps her card on the register (paid from the trip's wallet); the
  * cashier holds the bag out across the counter by its handles and she takes
- * it. Not enough money: the cashier says so and nothing moves.
+ * it. Not enough money: the cashier says so and nothing moves. Shoppers
+ * already ahead of her in the till's queue (`queue`, their CheckoutLine)
+ * are served first.
  */
 
 const LOOK = { base: 'girl_dress', hair: '#2b2b33', top: '#f2a7bd', bottom: '#f6f0ea', height: 1.6, gender: 'f' };
@@ -32,6 +34,8 @@ export class ClothingTill {
     this.data = data;
     this.cashier = null;
     this.held = null;                        // the bag the cashier holds out, waiting for her hand
+    this.her = null;                         // her position while she queues / pays here
+    this.queue = null;                       // the shoppers' queue (CheckoutLine, set by MallShoppers)
     this.grip = { x: 0, y: 0, z: 0 };       // where her palm takes it
     this.left = new Vector3();               // the cashier's left hand, folding
     const r = data.register, st = data.stand;
@@ -86,13 +90,15 @@ export class ClothingTill {
       return;
     }
     const bag = f.freeBag();
-    if (!bag) { hud.toast('Your hands are full of bags', 'Put them in the cart first'); return; }
     const her = f.her, items = f.carried.slice(), face = this.yawOut + Math.PI;
     const from = { x: 0, z: 0, yaw: 0 };
     her.freeze(true);
+    this.her = player.position;
+    if (this.queue?.aheadOf(player.position)) hud.toast('Waiting for your turn', 'The cashier is serving the customer ahead');
     const steps = [
+      { d: 0, until: () => !this.queue?.aheadOf(player.position) },
       // Up to the counter's edge.
-      { d: 0.45, step: (k, dt, first) => {
+      { d: 0.35, step: (k, dt, first) => {
         if (first) { from.x = player.position.x; from.z = player.position.z; from.yaw = player.yaw; }
         const to = this.at(0.1, HER), m = ease(k);
         her.place(lerp(from.x, to.x, m), lerp(from.z, to.z, m), player.yaw);
@@ -107,7 +113,7 @@ export class ClothingTill {
         f.drop(g);
         this._lay(g.unit, spot);
         f._click();
-      }, { lift: 0.04, back: i === items.length - 1 ? 0.45 : 0.25 }));
+      }, { lift: 0.04, back: i === items.length - 1 ? 0.35 : 0.25 }));
     });
     // The cashier's work (her own timeline): a bag, then each piece.
     steps.push({ d: 0, done: () => {
@@ -134,7 +140,7 @@ export class ClothingTill {
         c.bow();
       }, { lift: 0.04 }),
     );
-    f.timeline.play(steps, () => her.freeze(false));
+    f.timeline.play(steps, () => { this.her = null; her.freeze(false); });
   }
 
   /** A step: along her side of the counter to work at `p` (a counter point) with her right hand. */
@@ -180,7 +186,7 @@ export class ClothingTill {
       { d: 0, done: () => { bag.setEnabled(true); thing.put(under.x, under.y, under.z, this.yawOut); } },
       ...c.move(false, () => under, { lean: 0.45, lift: 0 }),
       { d: 0, done: () => hand.hold(thing, under.x, under.y, under.z, this.yawOut) },
-      ...c.move(true, () => spot, { lift: 0.12, lean: 0.25, d: 0.5 }),
+      ...c.move(true, () => spot, { lift: 0.12, lean: 0.25, d: 0.4 }),
       { d: 0, done: () => { hand.letGo(); this._rustle(); } },
       c.rest(0.2),
     ];
@@ -196,7 +202,7 @@ export class ClothingTill {
       ...c.move(false, () => ({ x: u.x, y: u.y + 0.02, z: u.z }), { lean: 0.4 }),
       { d: 0, done: () => hand.hold(this._thing(u), u.x, u.y, u.z, u.yaw, u.pitch) },
       c.go(() => this._stand(-0.32)),
-      ...c.move(true, () => scan, { lift: 0.05, lean: 0.35, d: 0.35 }),
+      ...c.move(true, () => scan, { lift: 0.05, lean: 0.35, d: 0.3 }),
       { d: 0.1, done: () => tone(f.ctx.audio, [1760], { dur: 0.09, type: 'square', gain: 0.05 }) },
     ];
     if (!shoes) {
@@ -209,14 +215,14 @@ export class ClothingTill {
           u.onHanger = false;
           hand.hold(this._thing(u.hanger), u.x, u.y, u.z, u.yaw, u.pitch);
         } },
-        ...c.move(true, () => pile, { lift: 0.08, lean: 0.4, d: 0.45 }),
+        ...c.move(true, () => pile, { lift: 0.08, lean: 0.4, d: 0.35 }),
         { d: 0, done: () => { hand.letGo(); set.setVisible(u.hanger, false); } },
         // Sides in, then in half, both hands on it: the garment's matrix scaled about its collar.
-        { d: 0.3, step: (k, dt, first) => {
+        { d: 0.2, step: (k, dt, first) => {
           if (first) o.l = this.left;
           this._hands(u, ease(k), 0);
         } },
-        { d: 0.6, step: (k) => {
+        { d: 0.45, step: (k) => {
           const a = ease(Math.min(1, k * 2)), b = ease(Math.max(0, k * 2 - 1));
           Quaternion.RotationYawPitchRollToRef(u.yaw, u.pitch, 0, _q);
           Matrix.ComposeToRef(_s.set(u.scale * lerp(1, 0.66, a), u.scale * lerp(1, FOLD_LEN, b), u.scale * (1 + b)), _q, _p.set(u.x, u.y + Math.sin(b * Math.PI) * 0.04, u.z), _m);
@@ -235,10 +241,10 @@ export class ClothingTill {
     }
     const item = shoes ? u : folded;
     steps.push(
-      ...c.move(false, () => ({ x: item.x, y: item.y + 0.04, z: item.z }), { lift: 0.04, lean: 0.35, d: 0.3 }),
+      ...c.move(false, () => ({ x: item.x, y: item.y + 0.04, z: item.z }), { lift: 0.04, lean: 0.35, d: 0.25 }),
       { d: 0, done: () => hand.hold(this._thing(item), item.x, item.y, item.z, item.yaw, item.pitch || 0) },
       c.go(() => this._stand(0.45)),
-      ...c.move(true, () => into, { lift: 0.12, lean: 0.3, d: 0.45 }),
+      ...c.move(true, () => into, { lift: 0.12, lean: 0.3, d: 0.35 }),
       { d: 0, done: () => { hand.letGo(); set.setVisible(item, false); this._rustle(); } },
       c.rest(0.2),
     );
@@ -261,7 +267,7 @@ export class ClothingTill {
       ...c.move(false, () => ({ x: bag.position.x, y: bag.position.y, z: bag.position.z }), { lean: 0.25, d: 0.35 }),
       { d: 0, done: () => hand.hold(thing, bag.position.x, bag.position.y, bag.position.z, bag.rotation.y) },
       c.go(() => this._stand(0.25)),
-      ...c.move(true, () => over, { lift: 0.08, lean: 0.4, d: 0.45 }),
+      ...c.move(true, () => over, { lift: 0.08, lean: 0.4, d: 0.35 }),
       { d: 0, done: () => {
         // Her hand goes on the handles beside the cashier's.
         const g = this.grip;
@@ -269,7 +275,7 @@ export class ClothingTill {
         this.held = bag;
       } },
       { d: 0, until: () => !hand.held },
-      c.rest(0.35),
+      c.rest(0.25),
     ];
   }
 

@@ -116,8 +116,8 @@ export class ShelfStock {
     const rows = Math.max(1, Math.min(ROWS, Math.floor((s.depth - 0.03) / (d.d + 0.006))));
     const layers = d.h < 0.08 ? Math.max(1, Math.min(3, Math.floor((gap - 0.05) / d.h))) : 1;
     const cx = fx + ax * u0, cz = fz + az * u0;
-    const f = { p, kind: 'shelf', x: cx, z: cz, nx, nz, ax, az, y, h: d.h * layers, half: bw / 2, units: [], chunk: this._chunk(cx, cz), left: 0 };
-    // Pick order: front row first, top of a stack first.
+    const f = { p, kind: 'shelf', x: cx, z: cz, nx, nz, ax, az, y, h: d.h * layers, half: bw / 2, cols, units: [], chunk: this._chunk(cx, cz), left: 0 };
+    // Pick order: front row first, top of a stack first (a run of `cols` packs side by side each).
     for (let r = 0; r < rows; r++) {
       const back = 0.015 + d.d / 2 + r * (d.d + 0.006);
       for (let l = layers - 1; l >= 0; l--) {
@@ -207,12 +207,22 @@ export class ShelfStock {
     return best;
   }
 
-  /** The pack she would take from a facing: the front one (shelves), the nearest (bins). */
+  /**
+   * The pack she would take from a facing: the nearest of the front ones
+   * (shelves: of the first run in pick order with any left; the first one
+   * of a wide facing could be a metre or two along), the nearest (bins).
+   */
   next(f, px, pz) {
+    let from = 0, to = f.units.length;
+    if (f.kind === 'shelf') {
+      while (from < to && f.units[from].taken) from++;
+      from -= from % f.cols;
+      to = Math.min(to, from + f.cols);
+    }
     let best = null, bd = Infinity;
-    for (const u of f.units) {
+    for (let i = from; i < to; i++) {
+      const u = f.units[i];
       if (u.taken) continue;
-      if (f.kind === 'shelf') return u;
       const d = (u.x - px) ** 2 + (u.z - pz) ** 2;
       if (d < bd) { bd = d; best = u; }
     }

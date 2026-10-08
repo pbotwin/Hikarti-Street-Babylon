@@ -40,8 +40,12 @@ const CASTORS = [[0.22, -0.3], [-0.22, -0.3], [0.17, 0.33], [-0.17, 0.33]];
 const MOUNT_Y = 0.13, WHEEL_R = 0.0625, TRAIL = 0.035;
 const GATE = { y: 0.97, z: -0.38, nested: -1.35 };
 // Pushing: top speed (a brisk walk), acceleration and braking (a loaded
-// cart has weight), turn rate about the back wheels.
-const MAX_SPEED = 1.6, ACCEL = 2.2, BRAKE = 3.6, TURN = 1.7, TURN_ACCEL = 7;
+// cart has weight), turn rate about the back wheels; pulled backwards, a
+// slow step back (so a nose against a rail or a shelf is never a trap: it
+// only turned about its back wheels and wedged in narrow gaps).
+const MAX_SPEED = 1.6, ACCEL = 2.2, BRAKE = 3.6, TURN = 1.7, TURN_ACCEL = 7, BACK_SPEED = 0.6;
+/** Wanted this far round from its facing (cosine, ~145°), a cart is pulled straight back. */
+export const PULL_BACK = -0.82;
 const RIM = 0.0075, WIRE = 0.0028, TUBE = 0.012;
 const clamp = MathUtils.clamp;
 
@@ -210,9 +214,11 @@ export class Cart {
   push(dt, heading, amount) {
     const off = Math.atan2(Math.sin(heading - this.yaw), Math.cos(heading - this.yaw));
     const on = amount > 0.08;
-    // Facing well away from where she wants to go: she swings it round first.
-    const want = on ? amount * MAX_SPEED * Math.max(0, Math.cos(off)) ** 1.5 : 0;
-    const wantTurn = on ? clamp(off * 3, -TURN, TURN) * Math.min(1, amount * 1.6) : 0;
+    // Wanted straight back: she pulls it back, without turning. Facing well
+    // away otherwise: she swings it round first.
+    const back = on && Math.cos(off) < PULL_BACK;
+    const want = !on ? 0 : back ? -amount * BACK_SPEED : amount * MAX_SPEED * Math.max(0, Math.cos(off)) ** 1.5;
+    const wantTurn = on && !back ? clamp(off * 3, -TURN, TURN) * Math.min(1, amount * 1.6) : 0;
     this.speed += clamp(want - this.speed, -BRAKE * dt, ACCEL * dt);
     this.turn += clamp(wantTurn - this.turn, -TURN_ACCEL * dt, TURN_ACCEL * dt);
     if (Math.abs(this.speed) < 1e-4 && Math.abs(this.turn) < 1e-4) { this.speed = this.turn = 0; return 0; }
@@ -258,10 +264,11 @@ export class Cart {
   // ------------------------------------------------------------ contents
   /**
    * Pack an entry into the basket: the lowest spot its footprint fits
-   * (turned square on if that is lower), front first. Returns false when full.
+   * (turned square on if that is lower), front first, or nearest cart-space
+   * z `near` (the end she puts it in from). Returns false when full.
    */
-  stow(e) {
-    const best = this._spotFor(e.size), B = CART.basket, cols = this.cols, H = this.heights;
+  stow(e, near = Infinity) {
+    const best = this._spotFor(e.size, near), B = CART.basket, cols = this.cols, H = this.heights;
     if (!best) return false;
     for (let r = best.r0; r < best.r0 + best.nr; r++) for (let c = best.c0; c < best.c0 + best.nc; c++) H[r * cols + c] = best.base + e.size.h;
     e.slot = {
@@ -281,18 +288,19 @@ export class Cart {
   /** Is there room in the basket for something this size? */
   fits(size) { return !!this._spotFor(size); }
 
-  /** The lowest spot a footprint fits (turned square on if that is lower), front first; null: full. */
-  _spotFor(size) {
-    const cols = this.cols, rows = this.rows, H = this.heights;
-    let best = null;
+  /** The lowest spot a footprint fits (turned square on if that is lower), front first or nearest z `near`; null: full. */
+  _spotFor(size, near = Infinity) {
+    const cols = this.cols, rows = this.rows, H = this.heights, z0 = CART.basket.z0;
+    let best = null, bestOff = Infinity;
     for (const turned of [false, true]) {
       const w = turned ? size.d : size.w, d = turned ? size.w : size.d;
       const nc = Math.min(cols, Math.ceil(w / 0.02)), nr = Math.min(rows, Math.ceil(d / 0.02));
       for (let r0 = rows - nr; r0 >= 0; r0--) {
+        const off = Math.abs(z0 + (r0 + nr / 2) * 0.02 - near);
         for (let c0 = 0; c0 + nc <= cols; c0++) {
           let base = 0;
           for (let r = r0; r < r0 + nr; r++) for (let c = c0; c < c0 + nc; c++) base = Math.max(base, H[r * cols + c]);
-          if (!best || base < best.base - 0.005) best = { base, c0, r0, nc, nr, turned };
+          if (!best || base < best.base - 0.005 || (base < best.base + 0.005 && off < bestOff - 0.02)) { best = { base, c0, r0, nc, nr, turned }; bestOff = off; }
         }
       }
     }

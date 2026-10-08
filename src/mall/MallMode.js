@@ -28,8 +28,11 @@ export class MallMode {
     deps.state.on('ui:mall-leave', () => this.finish());
   }
 
-  /** Controls belong to an animation (paying, trying on, loading the boot). */
-  get busy() { return this.active && this.modules.some((m) => m.busy); }
+  /**
+   * Controls belong to an animation (paying, trying on, loading the boot),
+   * or are off behind the receipt (the car braking, E not getting her out).
+   */
+  get busy() { return this.active && (this._finishing || this.modules.some((m) => m.busy)); }
 
   async start() {
     const d = this.deps;
@@ -88,6 +91,7 @@ export class MallMode {
       : '<li class="empty">Nothing bought this time.</li>';
     this.dom.receipt.querySelector('.mall-receipt-total').textContent = String(total);
     this.dom.receipt.querySelector('.mall-receipt-left').textContent = String(this.wallet.coins);
+    this.dom.receipt.querySelector('.mall-receipt-note').hidden = !r.length;
     this.dom.receipt.hidden = false;
     this.deps.input.setAction(null);
     this._setPrompt(null);
@@ -162,7 +166,7 @@ export class MallMode {
   // ------------------------------------------------------------ prompt
   _choosePrompt() {
     let best = null;
-    if (!this.busy && !this._finishing) {
+    if (!this.busy) {
       for (const m of this.modules) {
         const p = m.prompt();
         if (p && (!best || p.priority > best.priority || (p.priority === best.priority && p.distance < best.distance))) best = p;

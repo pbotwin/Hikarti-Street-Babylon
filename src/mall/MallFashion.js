@@ -8,7 +8,7 @@ import { FittingRoom, TryOn } from './FittingRoom.js';
 import { ClothingTill } from './ClothingTill.js';
 import { MirrorView } from './MirrorView.js';
 import { Timeline, clamp, ease, lerp, wrap } from './Timeline.js';
-import { tone } from './Tones.js';
+import { alarm, tone } from './Tones.js';
 import { Her } from './Her.js';
 
 /**
@@ -24,15 +24,15 @@ import { Her } from './Her.js';
  *    to the shopping module (cart, car boot);
  *  - leaving the store with unpaid clothes: a soft alarm and she turns back.
  * Every garment, also in her hand, is a thin instance of the store's garment
- * meshes moved by matrix writes, and the bags are prebuilt: nothing is
- * created in play.
+ * meshes moved by matrix writes, and the bags are prebuilt (another one, on
+ * the same warmed-up material, only once every bag has gone out with her).
  */
 
 export const MAX_CARRY = 3;
 // Her body's centre from what she reaches for (for something above 1.6 m:
 // REACH_HIGH), and her right shoulder from her centre: arm's reach (m).
 const REACH = 0.36, REACH_HIGH = 0.24, SHOULDER = 0.14;
-const BAG_POOL = 3;
+const BAG_POOL = 3;          // bags made at load: a trip's usual purchases
 // The sneakers' heel top (pair space): it sits in her palm when she carries them.
 const HEEL = new Vector3(0, 0.06, -0.125);
 const _c = new Vector3(), _d = new Vector3();
@@ -268,7 +268,7 @@ export class MallFashion {
    * arrives. She crouches (bends in) as far as it takes (at least `crouch`). Back to her side when she carries something (the carry pose's
    * wrist point, where act.bag takes over), else down to rest.
    */
-  reachSteps(to, at, { out = 0.5, back = 0.45, lift = 0.06, crouch = 0, turn = null } = {}) {
+  reachSteps(to, at, { out = 0.4, back = 0.35, lift = 0.06, crouch = 0, turn = null } = {}) {
     const act = this.ctx.animation.act, her = this.her;
     const from = { x: 0, y: 0, z: 0 };
     let c = 0;
@@ -288,7 +288,7 @@ export class MallFashion {
         act.crouch = c * m;
       } },
       // The hand settles on it (the arm's solve lags its target by a frame).
-      { d: 0.12, step: () => her.palmTo(to.x, to.y, to.z, 1), done: at },
+      { d: 0.06, step: () => her.palmTo(to.x, to.y, to.z, 1), done: at },
       { d: back, step: (k, dt, first) => {
         const r = her.reach;
         if (first) { from.x = r.x; from.y = r.y; from.z = r.z; }
@@ -377,41 +377,31 @@ export class MallFashion {
     ], () => her.freeze(false));
   }
 
-  /** ✕ in the panel: walk to the nearest free hook of its kind and hang it back. */
+  /**
+   * ✕ in the panel: she walks to the nearest free hook of its kind (round
+   * the tables and racks in the way: Her.goTo) and hangs it back.
+   */
   putBack(index) {
     const c = this.carried[index];
     if (!c || this.busy) return;
     const { player, hud } = this.ctx;
     const s = this.racks.freeFor(c.item, player.position);
     if (!s) { hud.toast('No free hook', `The ${c.item.name} stays with you`); return; }
-    const stand = this.racks.stand(s, player.position, { x: 0, z: 0, yaw: 0 });
-    const walk = { x: stand.x, z: stand.z, done: () => { walk.over = true; } };
+    const her = this.her, to = { x: 0, y: 0, z: 0 };
+    her.freeze(true);
+    // Her hand brings its hook onto the rail; it turns on its hook to hang square.
     this.timeline.play([
-      { until: () => walk.over, step: (k, dt, first) => { if (first) player.autoWalk = walk; } },
-      { d: 0, done: () => {
-        this.her.freeze(true);
-        // Something in the way: she keeps it.
-        if (Math.hypot(s.x - player.position.x, s.z - player.position.z) > 1.3) {
-          this.timeline.clear();
-          this.her.freeze(false);
-          hud.toast('Can’t reach the rack', `The ${c.item.name} stays with you`);
-          return;
-        }
-        // Her hand brings its hook onto the rail; it turns on its hook to hang square.
-        const to = { x: 0, y: 0, z: 0 };
-        this.timeline.play([
-          this.stepUp(s.x, s.y, s.z),
-          { d: 0, done: () => Object.assign(to, this.palmFor(this.carried.indexOf(c), c.unit.shape === 'sneakers', s.x, s.y, s.z, this.her.yaw)) },
-          ...this.reachSteps(to, () => {
-            this.drop(c);
-            s.item = c.id;
-            s.unit = c.unit;
-            this.settle(c.unit, s.x, s.y, s.z, s.yaw, { d: 0.2 });
-            this._click();
-          }, { lift: 0.08 }),
-        ], () => { this.her.freeze(false); });
-      } },
-    ]);
+      her.goTo(() => this.racks.stand(s, player.position, { x: 0, z: 0, yaw: 0 })),
+      this.stepUp(s.x, s.y, s.z),
+      { d: 0, done: () => Object.assign(to, this.palmFor(this.carried.indexOf(c), c.unit.shape === 'sneakers', s.x, s.y, s.z, her.yaw)) },
+      ...this.reachSteps(to, () => {
+        this.drop(c);
+        s.item = c.id;
+        s.unit = c.unit;
+        this.settle(c.unit, s.x, s.y, s.z, s.yaw, { d: 0.2 });
+        this._click();
+      }, { lift: 0.08 }),
+    ], () => her.freeze(false));
   }
 
   /** Step into a fitting room and try the clothes on (FittingRoom.js). */
@@ -433,9 +423,19 @@ export class MallFashion {
     return bags;
   }
 
-  /** An unused bag from the till's stack (null if all are out). */
+  /**
+   * An unused bag from the till's stack. Bags that went out stay out (in her
+   * hand, a cart, the boot), so when all are, another is made: three made
+   * the fourth purchase of a trip impossible.
+   */
   freeBag() {
-    return this.bagPool.find((m) => !m.isEnabled(false)) || null;
+    let bag = this.bagPool.find((m) => !m.isEnabled(false));
+    if (!bag) {
+      bag = this.print.bag(`mall:fashionBag${this.bagPool.length}`);
+      this.bagPool.push(bag);
+      this.ctx.graphics.addCasters([bag]);
+    }
+    return bag;
   }
 
   // ------------------------------------------------------------ store door
@@ -451,7 +451,7 @@ export class MallFashion {
     if (!this._inStore) return;
     this._inStore = false;
     if (!this.carried.length || this.busy) return;
-    tone(this.ctx.audio, [988, 784, 988, 784], { dur: 0.16, type: 'triangle', gain: 0.07, gap: 0.04 });
+    alarm(this.ctx.audio);
     this.ctx.hud.toast('Pay at the till first', 'These clothes aren’t paid for yet');
     // Back in by a step, the way she came out.
     const dx = this._lastIn.x - p.x, dz = this._lastIn.z - p.z, l = Math.hypot(dx, dz) || 1;

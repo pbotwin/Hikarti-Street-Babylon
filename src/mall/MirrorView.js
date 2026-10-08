@@ -35,20 +35,25 @@ export class MirrorView {
 
   /**
    * Aim at her standing at `inside` ({x, z}) facing the mirror ({x, y, z}).
-   * The distance shows her whole height at the camera's field of view.
+   * The distance shows her whole height at the camera's field of view, or
+   * (`shoes`) her shins and feet.
    */
-  aim(inside, mirror, height = 1.62) {
+  aim(inside, mirror, shoes = false, height = 1.62) {
     let dx = inside.x - mirror.x, dz = inside.z - mirror.z;
     const gap = Math.hypot(dx, dz) || 1;
     dx /= gap; dz /= gap;
     // Her whole height in the upper part of the picture, clear of the
     // fitting-room panel along the bottom: a little further back, aimed low.
-    const full = (height * 0.78) / Math.tan(this.camera.fov / 2);
+    // Shoes: 1.4 m of picture, her feet above its middle (framed whole, the
+    // panel covered them).
+    const half = shoes ? 0.7 : height * 0.78;
+    const full = half / Math.tan(this.camera.fov / 2);
     const behind = Math.max(0.4, full - gap);
-    this.pos.set(mirror.x - dx * behind, height * 0.72, mirror.z - dz * behind);
-    this.target.set(inside.x, height * 0.36, inside.z);
+    this.pos.set(mirror.x - dx * behind, shoes ? 0.6 : height * 0.72, mirror.z - dz * behind);
+    this.target.set(inside.x, shoes ? -0.14 : height * 0.36, inside.z);
     // Past the mirror wall (a little margin for the slight downward look).
     this.near = behind + 0.12;
+    if (this.on) this.camera.minZ = this.near;
   }
 
   /**

@@ -167,7 +167,7 @@ function signs() {
     }],
     welcome: [512, 96, board('#26324a', '#fff8ee', 'WELCOME · いらっしゃいませ')],
     restrooms: [512, 128, board('#5b6475', '#ffffff', 'Restrooms · お手洗い', 'Baby room · Lockers')],
-    fitting: [512, 112, board('#3a2430', '#fbe9ee', 'FITTING ROOMS', 'max. 4 items')],
+    fitting: [512, 112, board('#3a2430', '#fbe9ee', 'FITTING ROOMS', 'max. 3 items')],
     cartReturn: [512, 128, board('#2f8f5b', '#ffffff', 'CART RETURN', 'カート置き場', '#f6d24a')],
     exit: [256, 128, board('#2f8f5b', '#ffffff', 'EXIT  →', 'Thank you!')],
     deptBakery: [512, 112, board('#c98a4b', '#fff8ee', 'Bakery', 'Fresh every morning')],

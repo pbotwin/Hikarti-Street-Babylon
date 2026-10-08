@@ -25,6 +25,10 @@ const WALK = 1.05, PUSH = 0.85, TAKE = 2.3, HOLD_UP = 3.2, UNLOAD = 0.9, PAY = 3
 // Moving the cart in beside them / out again (s), and how far along beside
 // them it stands (its centre from theirs, m): its basket within arm's reach.
 const PARK = 0.7, BESIDE = 0.55;
+// How long they wait for her to get out of their way before going round her
+// (s): waiting reset their watchdog, so a shopper stood behind her for as
+// long as she stood still (for good, when she stood in a corral).
+const PATIENCE = 5;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -234,18 +238,20 @@ export class ShopperMind {
       const moved = Math.hypot(p.x - s.prog.x, p.z - s.prog.z);
       s.prog.x = p.x; s.prog.z = p.z; s.prog.t = 0;
       if (moved < 0.8) {
-        if (++s.snags > 2 && s.step.type !== 'car' && s.step.type !== 'queue') { this._drop(s); this._next(s); return; }
+        // Stuck for good, or still behind her past their patience: on to the next step.
+        if ((++s.snags > 2 || s.yieldT >= PATIENCE) && s.step.type !== 'car' && s.step.type !== 'queue') { this._drop(s); this._next(s); return; }
         const goal = route[route.count - 1];
         this.routeTo(s, goal.x, goal.z);
         return;
       }
     }
     const reach = s.kind === 'cart' ? 1.2 + CART_AHEAD : 1.2;
-    // She is in the way: wait for her (with a smile after a moment).
+    // She is in the way: wait for her (with a smile after a moment), then go round her.
     const pl = env.player;
     const hx = pl.x - p.x, hz = pl.z - p.z, near = Math.abs(pl.y - p.y) < 1.5;
     const ahead = hx * dx + hz * dz, side = Math.abs(hx * dz - hz * dx);
-    if (near && ahead > 0 && ahead < reach && side < 0.8) {
+    const inWay = near && ahead > 0 && ahead < reach && side < 0.8;
+    if (inWay && s.yieldT < PATIENCE) {
       s.yieldT += dt;
       if (s.yieldT > 1.2 && !s.smiled) { s.smiled = true; showBubble(s, '😊', 2); }
       s.facingTarget = Math.atan2(dx, dz);
@@ -253,7 +259,7 @@ export class ShopperMind {
       this._carry(s, dt);
       return;
     }
-    s.yieldT = 0;
+    if (!inWay) s.yieldT = 0;
     if (s.smiled && Math.hypot(hx, hz) > 4) s.smiled = false;
     // Others: keep some space, pass what's ahead on the right, slow down behind it.
     this._vx = dx; this._vz = dz; this._slow = 1;
@@ -262,6 +268,8 @@ export class ShopperMind {
       this._avoid(s, o.position.x, o.position.z, dx, dz, reach);
       if (o.kind === 'cart') this._avoid(s, o.cart.x, o.cart.z, dx, dz, reach);
     }
+    // Out of patience with her: passing her as anyone else.
+    if (inWay) this._avoid(s, pl.x, pl.z, dx, dz, reach);
     let vx = this._vx, vz = this._vz;
     if (near) {
       const ox = -hx, oz = -hz, od = Math.hypot(ox, oz);

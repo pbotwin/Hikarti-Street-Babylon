@@ -11,6 +11,7 @@ import { buildMarket } from './MallMarket.js';
 import { buildBoutique } from './MallBoutique.js';
 import { buildLot } from './MallLot.js';
 import { planLayout, siteTransform } from './MallPlan.js';
+import { MallNav } from './MallNav.js';
 import { IndoorLight } from '../core/IndoorLight.js';
 
 /**
@@ -33,7 +34,7 @@ import { IndoorLight } from '../core/IndoorLight.js';
 // flickered when the camera moved 1 mm (2,100 px in one view; none here).
 // Clear of the audio's park and garden zones too.
 const ORIGIN = { x: -650, z: -200 };
-// How far inside the building's edge (m) the store light fades in, and back out.
+// How far in from the entrances' doorways (m) the store light fades in, and back out.
 const IN_AT = 2.5, OUT_AT = 0.8;
 
 export class MallWorld {
@@ -49,6 +50,8 @@ export class MallWorld {
   async init() {
     const { scene, collision, graphics, vehicles } = this.ctx;
     this.layout = planLayout(ORIGIN);
+    // The walk graph's routes, for the shoppers and her scripted walks.
+    this.nav = new MallNav(this.layout.nav, collision, this.layout.building.floorY);
     // The site frame: half a turn about the origin (see MallPlan).
     const root = this.root = new TransformNode('mall', scene);
     root.position.set(ORIGIN.x, 0, ORIGIN.z);
@@ -123,15 +126,22 @@ export class MallWorld {
 
   /**
    * Store lighting while she is inside the building, faded in and out
-   * (IndoorLight). It turns a few metres in, not at the doors: the low sun
-   * shines into the entrance portals, so they are still in daylight, and by
-   * then the camera behind her is inside too. The
-   * different marks in and out keep it from turning back and forth while
-   * she stands near one.
+   * (IndoorLight). It turns a few metres past the entrance doors, not at
+   * them: the low sun shines into the entrance portals, so they are still in
+   * daylight, and by then the camera behind her is inside too. Measured from
+   * the doorways (the only way in), not from every wall: racks and coolers
+   * stand against the outer walls, and a margin from those turned the
+   * sunset back on at them. The different marks in and out keep it from
+   * turning back and forth while she stands near one.
    */
   _light(p, dt) {
     const b = this.layout.building;
-    const depth = Math.min(p.x - b.x0, b.x1 - p.x, p.z - b.z0, b.z1 - p.z);
+    let depth = -1;
+    if (p.x > b.x0 && p.x < b.x1 && p.z > b.z0 && p.z < b.z1) {
+      depth = Infinity;
+      // Behind the doors' line (an entrance faces out: forward = (sin yaw, cos yaw)).
+      for (const e of this.layout.entrances) depth = Math.min(depth, (e.x - p.x) * Math.sin(e.yaw) + (e.z - p.z) * Math.cos(e.yaw));
+    }
     const inside = depth > (this._inside ? OUT_AT : IN_AT);
     if (inside !== this._inside) {
       this._inside = inside;

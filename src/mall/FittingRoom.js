@@ -9,12 +9,14 @@ import { tone } from './Tones.js';
  * along its rail), the hook inside and what was left on it (it stays: no
  * one tidies up during the trip).
  *
- * TryOn: her visit. She walks in, the curtain closes, she hangs what she
- * brought on the hook, and the view turns to the mirror (MirrorView). The
- * panel cycles the pieces: each one is put on (ShopSystem.previewOutfit,
- * behind a moment of mist so nothing pops), "Keep" marks it to buy and
- * moves on, "Leave it here" hangs it back on the hook for good. "Done": her
- * own clothes again, the curtain opens, she takes the rest and walks out.
+ * TryOn: her visit. She walks in, the curtain closes and the view turns
+ * to the mirror (MirrorView: the game camera behind her in the small
+ * cubicle was in her hair and the hanging clothes); she hangs what she
+ * brought on the hook. The panel cycles the pieces: each one is put on
+ * (ShopSystem.previewOutfit, behind a moment of mist so nothing pops; shoes
+ * framed close), "Keep" marks it to buy and moves on, "Leave it here" hangs
+ * it back on the hook for good. "Done": her own clothes again, she takes
+ * the rest, the curtain opens and she walks out.
  */
 
 const CURTAIN_TIME = 0.7;
@@ -105,6 +107,9 @@ export class TryOn {
         f.turn(at.yaw, room.yaw, k);
       } },
       { until: () => !room.moving },
+      // The view turns to the mirror.
+      { d: 0, done: () => { f.mirror.aim(d.inside, d.mirror); f.mirror.veil(() => f.mirror.set(true)); } },
+      { until: () => f.mirror.clear },
     ];
     // Up to the hook; the hangers onto it, all at once off her fingers.
     steps.push(f.stepUp(d.hook[0], d.hook[1], d.hook[2], d.inside));
@@ -133,11 +138,10 @@ export class TryOn {
     // Back to the middle, facing the mirror.
     steps.push(f.her.goTo(() => ({ x: d.inside.x, z: d.inside.z, yaw: room.yaw })));
     f.timeline.play(steps, () => {
-      // The view turns to the mirror, and the first piece goes on.
-      f.mirror.aim(d.inside, d.mirror);
+      // The first piece goes on.
       this.live = true;
       this._panel();
-      this.wear(0, true);
+      this.wear(0);
     });
   }
 
@@ -147,7 +151,7 @@ export class TryOn {
   }
 
   /** Put the i-th piece on (behind the mist); the one it replaces goes back on its hanger. */
-  wear(i, enter = false) {
+  wear(i) {
     const it = this.items[i];
     if (!it || it.status === 'left') return;
     const f = this.f, set = f.set;
@@ -155,13 +159,19 @@ export class TryOn {
     this.ready = false;
     this._render();
     f.mirror.veil(() => {
-      if (enter) f.mirror.set(true);
+      this._frame(it);
       const kind = it.item.kind, prev = this.worn[kind];
       if (prev != null) set.setVisible(this.items[prev].unit, true);
       this.worn[kind] = i;
       set.setVisible(it.unit, false);
       return this._preview();
     });
+  }
+
+  /** The mirror's framing for a piece going on: shoes close, else all of her. */
+  _frame(it) {
+    const d = this.room.data;
+    this.f.mirror.aim(d.inside, d.mirror, it?.item.kind === 'shoes');
   }
 
   _preview() {
@@ -197,7 +207,8 @@ export class TryOn {
           this.worn[n.item.kind] = next;
           f.set.setVisible(n.unit, false);
           this.current = next;
-        }
+          this._frame(n);
+        } else this._frame(null);
         return this._preview();
       });
     } else if (next >= 0) this.wear(next);
@@ -210,7 +221,7 @@ export class TryOn {
     else this._render();
   }
 
-  /** "Done": her own clothes, the curtain opens, she takes the rest and walks out. */
+  /** "Done": her own clothes, she takes the rest, the curtain opens and she walks out. */
   done() {
     if (!this.ready) return;
     const f = this.f, { player, cameraRig } = f.ctx, room = this.room, d = room.data;
@@ -220,11 +231,7 @@ export class TryOn {
     f.mirror.veil(() => {
       for (const kind in this.worn) f.set.setVisible(this.items[this.worn[kind]].unit, true);
       this.worn = {};
-      f.mirror.set(false);
-      // The camera outside the cubicle, looking in at her.
-      cameraRig.yaw = cameraRig.targetYaw = Math.atan2(d.inside.x - d.door.x, d.inside.z - d.door.z);
-      room.draw(false);
-      this._swish();
+      this._frame(null);
       return f.ctx.shops.previewOutfit(null);
     });
     const walk = { x: d.door.x, z: d.door.z, done: () => { walk.over = true; } };
@@ -248,6 +255,14 @@ export class TryOn {
       }));
     }
     steps.push(
+      // Out of the mirror: the camera outside the cubicle, looking in at her; the curtain opens.
+      { d: 0, done: () => f.mirror.veil(() => {
+        f.mirror.set(false);
+        cameraRig.yaw = cameraRig.targetYaw = Math.atan2(d.inside.x - d.door.x, d.inside.z - d.door.z);
+        room.draw(false);
+        this._swish();
+      }) },
+      { until: () => f.mirror.clear },
       { d: 0, done: () => f.her.freeze(false) },
       { until: () => walk.over, step: (k, dt, first) => { if (first) player.autoWalk = walk; } },
     );

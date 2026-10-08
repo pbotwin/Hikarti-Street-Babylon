@@ -34,6 +34,11 @@ const NONE = [];
 // her right shoulder from her centre (where her hand reaches from).
 const STAND = 0.34, SHOULDER = 0.14;
 const RIM = 0.99;   // m: a cart basket's top rim, which what goes in or out is lifted over
+// From her centre to the middle of a cart's basket she reaches into without a
+// step (her arm and a lean: crouchTo bends her in from 0.4 m out).
+const REACH = 0.68;
+// m behind a corral slot where a returned cart's collider meets the one ahead's: from there it nests in by hand.
+const NEST = 0.9;
 
 export class MallShopping {
   constructor(ctx) {
@@ -61,8 +66,14 @@ export class MallShopping {
       grab: P('Take the cart', ICON.cart, 4, () => this.takeCart(this.mine, null)),
       bags: P('Put the bags in the cart', '🛍', 6, () => this.bagsIntoCart(this.mine)),
       corral: P('Take a cart', ICON.cart, 4, () => this.takeCart(this._slot.cart, this._slot)),
+      // Why nothing else is offered here (her hands are full, the wrong end of a corral): pressed, it says so.
+      hint: P('', '✋', 0, () => this.ctx.hud.toast(this._prompts.hint.label, this._prompts.hint.sub)),
     };
+    this._fromEnd = true;     // her cart is lined up with the open end of the corral _slot is in
     this._aimAt = { f: null, u: null };
+    this.other = null;        // another product she looks at with something in her hand
+    this._full = '';          // the hint's label then
+    this._out = { inside: false, x: 0, z: 0, yaw: 0, quiet: 0 };   // her (her cart's) last pose inside the market; the alarm's quiet time
     this._seen = { cart: null, version: -1, held: null };
   }
 
@@ -120,9 +131,15 @@ export class MallShopping {
    * reverse, so she was stuck with it.)
    */
   _mouth(slot) {
+    const end = this._end(slot);
+    return Math.hypot(end.x - slot.x, end.z - slot.z) + CART.half.z * 2;
+  }
+
+  /** The slot at a corral's open end (the last one back along the nest from `slot`). */
+  _end(slot) {
     let end = slot;
     for (let o = this._neighbour(end, -1); o; o = this._neighbour(end, -1)) end = o;
-    return Math.hypot(end.x - slot.x, end.z - slot.z) + CART.half.z * 2;
+    return end;
   }
 
   /** A cart lifts the back gate of the one it is nested into. */
@@ -132,7 +149,13 @@ export class MallShopping {
 
   /**
    * The cart at the open end of a nest nearest her (or, `ret`, the free slot
-   * to return hers to): kept in _slot; returns how far she is from it (Infinity: none).
+   * to return hers to): kept in _slot; returns how far she is from it
+   * (Infinity: none). A free slot deep in a near-empty corral is offered
+   * from its open end already (she was walked in between the rails). And
+   * returning, _fromEnd says whether her cart comes from that open end
+   * (between the rails, or lined up behind them, facing in): a cart only
+   * goes in from there (from the side or the closed end it shoved against
+   * the rails).
    */
   _corralTarget(ret) {
     let best = null, bd = 3.2;
@@ -145,11 +168,21 @@ export class MallShopping {
         const empty = !this.slots.some((o) => o.corral === s.corral && o.cart);
         if (empty ? !!ahead : !ahead?.cart) continue;
       }
-      const d = Math.hypot(s.x - Math.sin(s.yaw) * CART.behind - this.her.x, s.z - Math.cos(s.yaw) * CART.behind - this.her.z);
+      const d = Math.min(this._behind(s), ret ? this._behind(this._end(s), s.yaw) : Infinity);
       if (d < bd) { bd = d; best = s; }
     }
     this._slot = best;
+    if (best && ret) {
+      const end = this._end(best), fx = Math.sin(best.yaw), fz = Math.cos(best.yaw), c = this.mine;
+      const dx = c.x - end.x, dz = c.z - end.z, across = Math.abs(dx * fz - dz * fx);
+      this._fromEnd = Math.cos(c.yaw - best.yaw) > 0 && (across < 0.45 || (dx * fx + dz * fz < 0 && across < 1.2));
+    }
     return best ? bd : Infinity;
+  }
+
+  /** How far she is from where she stands pushing a cart in `slot` (facing yaw). */
+  _behind(slot, yaw = slot.yaw) {
+    return Math.hypot(slot.x - Math.sin(yaw) * CART.behind - this.her.x, slot.z - Math.cos(yaw) * CART.behind - this.her.z);
   }
 
   // ------------------------------------------------------------ per frame
@@ -162,6 +195,7 @@ export class MallShopping {
     this.boot.update(dt);
     this.fleet.update(dt);
     this._carryInHand();
+    this._guardExit(dt);
     this.goods.flush();
     this.bags.update();
     this.stock.update(dt, this.ctx.camera.position);
@@ -180,6 +214,37 @@ export class MallShopping {
       const e = this.hanging[i], o = (i + 1) * 0.02;
       e.put(_v.x + Math.cos(yaw) * o, _v.y - e.handle + 0.015, _v.z - Math.sin(yaw) * o, yaw + Math.PI / 2);
     }
+  }
+
+  /**
+   * Unpaid goods leaving the market (past a lane's end, out through the
+   * entry), as at the clothing store: the gate's alarm, and they stay in.
+   * A cart she pushes stops where it was still inside; with something in
+   * her hand she turns back in by a step.
+   */
+  _guardExit(dt) {
+    const zone = this.ctx.layout.grocery.zone, o = this._out, cart = this.pushing.active ? this.mine : null;
+    o.quiet -= dt;
+    const x = cart ? cart.x : this.her.x, z = cart ? cart.z : this.her.z;
+    if (x > zone.x0 && x < zone.x1 && z > zone.z0 && z < zone.z1) {
+      o.inside = true; o.x = x; o.z = z; o.yaw = cart ? cart.yaw : this.her.yaw;
+      return;
+    }
+    if (!o.inside || this.busy) return;
+    if (cart ? !this.unpaid.length : !this.held) { o.inside = false; return; }
+    if (o.quiet <= 0) {
+      o.quiet = 3;
+      this.tones.alarm();
+      this.ctx.hud.toast('Pay at a checkout first', cart ? 'What’s in your cart isn’t paid for yet' : `${this.held.p.name} isn’t paid for yet`);
+    }
+    if (cart) {
+      cart.moveTo(o.x, o.z, o.yaw);
+      cart.speed = cart.turn = 0;
+      return;
+    }
+    o.inside = false;
+    const dx = o.x - x, dz = o.z - z, l = Math.hypot(dx, dz) || 1;
+    this.walkTo(o.x + dx / l, o.z + dz / l, () => {});
   }
 
   // ------------------------------------------------------------ the clothing store's bags
@@ -226,9 +291,11 @@ export class MallShopping {
       const id = this.held?.id || null;
       t.f = this.stock.target(_eye, _dir, pl.position.x, pl.position.z, id);
       t.u = t.f && (id ? this.stock.spot(t.f, this.held.from.u) : this.stock.next(t.f, pl.position.x, pl.position.z));
-    }
+      // Something in her hand and another product in her eye: she is told why she can't take it.
+      this.other = id && !t.f ? this.stock.target(_eye, _dir, pl.position.x, pl.position.z) : null;
+    } else this.other = null;
     this.target = t.u ? t : null;
-    this.stock.mark(this.target && !this.held ? t.u : null, t.f, this.time);
+    this.stock.mark(this.target && !this.held && !this.bagsInHand ? t.u : null, t.f, this.time);
   }
 
   // ------------------------------------------------------------ prompt
@@ -237,7 +304,8 @@ export class MallShopping {
     const P = this._prompts;
     const boot = this.boot.prompt();
     if (boot) return boot;
-    if (this.bagsInHand && !this.pushing.active) {
+    const bags = this.bagsInHand;
+    if (bags && !this.pushing.active) {
       const d = this.mine ? this._cartDistance(this.mine) : Infinity;
       if (d < 1.4) return this._show(P.bags, d);
     }
@@ -246,30 +314,42 @@ export class MallShopping {
       if (lane) return lane;
       if (this.target) return this._take();
       const ret = this.mine.contents.length ? Infinity : this._corralTarget(true);
-      if (ret < Infinity) return this._show(P.ret, ret);
+      // Near a corral but not lined up with its open end: letting go stays possible
+      // (a hint in its place left her no way to leave the cart there).
+      if (ret < Infinity && this._fromEnd) return this._show(P.ret, ret);
       return this._show(P.leave, 2);
     }
-    if (this.held || this.bagsInHand) {
-      if (!this.held) return null;
+    if (this.held) {
       if (P.back.item !== this.held) {
         P.back.item = P.into.item = this.held;
         P.back.label = `Put back ${this.held.p.name}`;
         P.into.label = `Put ${this.held.p.name} in the cart`;
+        this._full = `Hands full · ${this.held.p.name}`;
       }
       if (this.target) return this._show(P.back, 0.5);
       const d = this.mine ? this._cartDistance(this.mine) : Infinity;
-      return d < 1.4 ? this._show(P.into, d) : null;
+      if (d < 1.4) return this._show(P.into, d);
+      // (She can't take it to a corral: the market's way out stops her, _guardExit.)
+      return this.other ? this.hint(this._full, 'Put it back on its shelf, or in your cart, first', 0.6) : null;
     }
     // Right at her cart's handle, taking hold of it comes first.
     const near = this.mine ? this._cartDistance(this.mine) : Infinity;
     if (near < 0.8) return this._show(P.grab, near, 6);
-    if (this.target) return this._take();
+    if (this.target) return bags ? this.hint('Hands full of bags', 'Put them in a cart (or your car’s boot) first', 0.6) : this._take();
     if (near < 1.3) return this._show(P.grab, near, 4);
     if (!this.mine?.contents.length) {
       const d = this._corralTarget(false);
       if (d < Infinity) return this._show(P.corral, d);
     }
     return null;
+  }
+
+  /** The hint prompt (see _prompts.hint): what to do instead, toasted when pressed. */
+  hint(label, sub, distance) {
+    const h = this._prompts.hint;
+    h.label = label;
+    h.sub = sub;
+    return this._show(h, distance);
   }
 
   _show(p, distance, priority = p.priority) {
@@ -333,39 +413,55 @@ export class MallShopping {
     const cart = this.mine;
     this.pushing.stop();
     this.her.freeze(true);
-    this.tl.play([{ d: 0.3, step: (k) => this._hands(cart, 1 - ease(k)) }], () => {
+    this.tl.play([{ d: 0.2, step: (k) => this._hands(cart, 1 - ease(k)) }], () => {
       this.ctx.animation.act.hands = null;
       this.her.freeze(false);
     });
   }
 
-  /** Push the empty cart into the back of a corral's nest and let go. */
+  /**
+   * Push the empty cart into the back of a corral's nest (lined up on the
+   * rails first, from behind the open end), let go and step back out
+   * between the rails. If it won't go in, she keeps it.
+   */
   returnCart(slot) {
-    const cart = this.mine;
-    this.pushing.drive(slot.x - Math.sin(slot.yaw) * 0.7, slot.z - Math.cos(slot.yaw) * 0.7, () => {
+    const cart = this.mine, end = this._end(slot), fx = Math.sin(slot.yaw), fz = Math.cos(slot.yaw);
+    const stuck = () => this.ctx.hud.toast('The cart won’t go in', 'Line it up with the open end of the rails');
+    // Pushed up to where its collider meets the cart ahead's, then nested into it by hand.
+    const into = () => this.pushing.drive(slot.x - fx * NEST, slot.z - fz * NEST, (arrived) => {
+      if (!arrived) { stuck(); return; }
       this.pushing.stop();
       this.her.freeze(true);
       const x0 = cart.x, z0 = cart.z, y0 = cart.yaw;
       this.tl.play([
-        { d: 0.8, step: (k) => {
+        { d: 0.6, step: (k) => {
           const m = ease(k);
           cart.moveTo(lerp(x0, slot.x, m), lerp(z0, slot.z, m), lerpAngle(y0, slot.yaw, m));
           cart.pusher(_spot);
           this.her.place(_spot.x, _spot.z, cart.yaw);
           this._hands(cart, 1);
         }, done: () => { slot.cart = cart; this._nest(); this.tones.rattle(0.8); } },
-        { d: 0.35, step: (k) => this._hands(cart, 1 - ease(k)) },
+        ...this._handsOff(cart),
+        // Back out past the open end (a cart length clear of it), turning to face away.
+        this._go(() => {
+          const out = Math.min((this.her.x - end.x) * fx + (this.her.z - end.z) * fz, -CART.half.z * 2 - 0.6);
+          return { x: end.x + fx * out, z: end.z + fz * out, yaw: slot.yaw + Math.PI };
+        }),
       ], () => {
         this.ctx.animation.act.hands = null;
         this.mine = null;
         this.her.freeze(false);
       });
     });
+    // Off the rails' line: first onto it, behind the open end.
+    const dx = cart.x - end.x, dz = cart.z - end.z;
+    if (Math.abs(dx * fz - dz * fx) > 0.12) this.pushing.drive(end.x - fx * 1.4, end.z - fz * 1.4, (arrived) => (arrived ? into() : stuck()));
+    else into();
   }
 
   /** Steps: she lets go of the cart's handle (her hands back to her sides). */
   _handsOff(cart) {
-    return [{ d: 0.3, step: (k) => this._hands(cart, 1 - ease(k)) }];
+    return [{ d: 0.2, step: (k) => this._hands(cart, 1 - ease(k)) }];
   }
 
   /** Both hands on a cart's handle with weight w. */
@@ -402,7 +498,7 @@ export class MallShopping {
   _toSide() {
     const her = this.her, act = this.ctx.animation.act, r = her.reach;
     let from = null;
-    return [{ d: 0.4, step: (k, dt, first) => {
+    return [{ d: 0.3, step: (k, dt, first) => {
       if (first) from = { x: r.x, y: r.y, z: r.z, crouch: act.crouch };
       her.side(_v);
       const m = ease(k);
@@ -415,7 +511,7 @@ export class MallShopping {
   _handBack(lift = 0.12) {
     const her = this.her, act = this.ctx.animation.act, r = her.reach;
     let from = null;
-    return [{ d: 0.35, step: (k, dt, first) => {
+    return [{ d: 0.2, step: (k, dt, first) => {
       if (first) from = { x: r.x, y: r.y, z: r.z, crouch: act.crouch };
       const m = ease(k);
       her.reachTo(from.x, from.y + lift * m, from.z, 1 - m);
@@ -451,7 +547,7 @@ export class MallShopping {
         if (hand && to.yaw !== undefined) her.turnHeld(to.yaw, to.rx || 0, Math.min(1, dt * 8));
         put(lerp(from.x, to.x, m), lerp(from.y, to.y, m) + Math.sin(m * Math.PI) * lift, lerp(from.z, to.z, m));
       } },
-      { d: 0.12, step: () => {
+      { d: 0.05, step: () => {
         if (hand && to.yaw !== undefined) her.turnHeld(to.yaw, to.rx || 0, 0.5);
         put(to.x, to.y, to.z);
       } },
@@ -489,15 +585,25 @@ export class MallShopping {
 
   /**
    * Where she stands at her cart to reach into its basket at cart-space z:
-   * beside it (`side` in cart space, or her side first, the other if
-   * something is in the way), facing it, the spot just to her right; behind
-   * the handle when both sides are blocked. Coming from the other side or
-   * the handle, she goes round the handle end (`via`).
+   * where she is, if that spot is within arm's reach (on `side`, if given),
+   * just turning to it; else beside it (`side` in cart space, or her side
+   * first, the other if something is in the way), facing it, the spot just
+   * to her right; behind the handle when both sides are blocked. Coming
+   * from the other side or the handle, she goes round the handle end (`via`).
    */
   _cartStance(cart, lz, out, side = 0) {
     const her = this.her, col = this.ctx.collision, y = this.ctx.player.position.y;
     cart.toLocal(her.x, 0, her.z, _local);
     const first = _local.x >= 0 ? 1 : -1, z = clamp(lz, -0.22, 0.24);
+    const clearOf = Math.abs(_local.x) > CART.half.x + 0.1 || Math.abs(_local.z) > CART.half.z + 0.1;
+    if (clearOf && (!side || side === first)) {
+      cart.toWorld(0, 0, z, out);
+      if (Math.hypot(out.x - her.x, out.z - her.z) < REACH) {
+        out.yaw = Math.atan2(out.x - her.x, out.z - her.z);
+        out.x = her.x; out.z = her.z; out.via = null;
+        return out;
+      }
+    }
     if (!side) {
       col.ignore = cart.collider;
       for (const s of [first, -first]) {
@@ -578,7 +684,7 @@ export class MallShopping {
     let item = null;
     const steps = [
       this._go(() => this._shelfStance(f, u, {}), pushing ? (m) => this._hands(cart, 1 - ease(m * 2.5)) : null),
-      ...this._move(false, () => grip, 0, 0.04, 0.5),
+      ...this._move(false, () => grip, 0, 0.04, 0.35),
       // Her fingers close on it; she draws it out of its row (lifts it off the pile), turning it to her.
       { d: 0, done: () => {
         this.stock.take(f, u);
@@ -586,7 +692,7 @@ export class MallShopping {
         her.hold(item, u.x, u.y, u.z, u.ry, u.rx);
         this.tones.click();
       } },
-      ...this._move(true, () => ({ x: u.x + f.nx * (bin ? 0.04 : 0.2), y: u.y + (bin ? 0.16 : 0.05), z: u.z + f.nz * (bin ? 0.04 : 0.2), yaw: her.yaw + Math.PI }), 0, 0, 0.35),
+      ...this._move(true, () => ({ x: u.x + f.nx * (bin ? 0.04 : 0.2), y: u.y + (bin ? 0.16 : 0.05), z: u.z + f.nz * (bin ? 0.04 : 0.2), yaw: her.yaw + Math.PI }), 0, 0, 0.25),
     ];
     if (cart) steps.push(...this._intoCart(() => item, cart, pushing));
     else steps.push(...this._toSide());
@@ -613,12 +719,12 @@ export class MallShopping {
       this._go(() => {
         e = getThing();
         e.flying = true;
-        cart.stow(e);
+        cart.stow(e, cart.toLocal(this.her.x, 0, this.her.z, _local).z);
         return this._cartStance(cart, e.slot.z, {}, side);
       }, (m, dt) => this._front(dt)),
       // Over the basket's rim, turned the way it will lie; down into its place.
-      ...this._move(true, place(true), 0.15, 0.08, 0.45),
-      ...this._move(true, place(false), 0, 0, 0.4),
+      ...this._move(true, place(true), 0.15, 0.08, 0.3),
+      ...this._move(true, place(false), 0, 0, 0.25),
       { d: 0, done: () => this._release(cart) },
       ...this._handBack(0.2),
     ];
@@ -672,8 +778,8 @@ export class MallShopping {
     this.tl.play([
       this._go(() => this._shelfStance(f, u, {}), (m, dt) => this._front(dt)),
       // In front of its place, turned the way it stood; then into it.
-      ...this._move(true, () => ({ x: u.x + f.nx * out, y: u.y + up, z: u.z + f.nz * out, yaw: u.ry, rx: u.rx }), 0, 0.06, 0.5),
-      ...this._move(true, () => ({ x: u.x, y: u.y, z: u.z, yaw: u.ry, rx: u.rx }), 0, 0, 0.3),
+      ...this._move(true, () => ({ x: u.x + f.nx * out, y: u.y + up, z: u.z + f.nz * out, yaw: u.ry, rx: u.rx }), 0, 0.06, 0.35),
+      ...this._move(true, () => ({ x: u.x, y: u.y, z: u.z, yaw: u.ry, rx: u.rx }), 0, 0, 0.2),
       { d: 0, done: () => {
         // Set down in its place: the shelf shows it again, the loose pack goes.
         her.letGo();
@@ -690,6 +796,9 @@ export class MallShopping {
     const cart = this.mine, item = this.unpaid[index];
     if (this.held) { this.ctx.hud.toast('Hands full', `Put ${this.held.p.name} back first`); return; }
     if (!item || this.busy || this.ctx.vehicles.driving) return;
+    if (this.bagsInHand) { this.ctx.hud.toast('Hands full of bags', 'Put them in the cart first'); return; }
+    // From across the store she would walk all the way back: she goes herself.
+    if (!this.pushing.active && this._cartDistance(cart) > 4) { this.ctx.hud.toast('Your cart is over there', 'Walk back to it first'); return; }
     const pushing = this.pushing.active;
     if (pushing) this.pushing.stop();
     const her = this.her;
@@ -702,14 +811,14 @@ export class MallShopping {
     this.tl.play([
       this._go(() => this._cartStance(cart, item.cur.z, {}), pushing ? (m) => this._hands(cart, 1 - ease(m * 2.5)) : null),
       // Over it, down onto its top, and it comes up in her hand.
-      ...this._move(false, top(true), 0.15, 0.05, 0.4),
-      ...this._move(false, top(false), 0, 0, 0.35),
+      ...this._move(false, top(true), 0.15, 0.05, 0.3),
+      ...this._move(false, top(false), 0, 0, 0.25),
       { d: 0, done: () => {
         cart.unstow(item);
         her.hold(item, at.x, at.y, at.z, cart.yaw + item.cur.yaw);
         this.tones.click();
       } },
-      ...this._move(true, () => ({ x: at.x, y: Math.max(RIM, at.y) + 0.12, z: at.z }), 0, 0.02, 0.4),
+      ...this._move(true, () => ({ x: at.x, y: Math.max(RIM, at.y) + 0.12, z: at.z }), 0, 0.02, 0.3),
       ...this._toSide(),
     ], () => {
       this.held = item;
@@ -738,10 +847,17 @@ export class MallShopping {
     const items = this.unpaid, hud = this.ctx.hud;
     if (!items.length && !held) { hud.panel('cart', null); this._panelEl = null; return; }
     const total = totalOf(items);
+    // One row per product (× how many); its ✕ takes out the one lying highest (the easiest to reach).
+    const rows = new Map();
+    items.forEach((e, i) => {
+      const r = rows.get(e.id);
+      if (!r) rows.set(e.id, { e, n: 1, top: i });
+      else { r.n++; if (e.cur.y > items[r.top].cur.y) r.top = i; }
+    });
     const el = hud.panel('cart', `
       <div class="basket-head">${items.length ? `<b>🛒 Cart · ${items.length}</b><span>${total} ◈</span>` : `<b>✋ ${esc(held.p.name)}</b><span>${held.p.price} ◈</span>`}</div>
-      <div class="basket-items">${items.map((e, i) => `<div class="basket-item"><span>${ICON.take}</span><b>${esc(e.p.name)}</b><i>${e.p.price} ◈</i><button class="put" data-out="${i}" aria-label="Take out">✕</button></div>`).join('')}</div>
-      <small>${held ? `In your hand: ${esc(held.p.name)} · back on its shelf, or in the cart` : 'Pay at a checkout · ✕ takes it out'}</small>`);
+      <div class="basket-items">${[...rows.values()].map(({ e, n, top }) => `<div class="basket-item"><span>${ICON.take}</span><b>${n > 1 ? `${n} × ` : ''}${esc(e.p.name)}</b><i>${e.p.price * n} ◈</i><button class="put" data-out="${top}" aria-label="Take one out">✕</button></div>`).join('')}</div>
+      <small>${held ? `In your hand: ${esc(held.p.name)} · back on its shelf, or in the cart` : 'Pay at a checkout · ✕ takes one out'}</small>`);
     if (el !== this._panelEl) {
       this._panelEl = el;
       el.addEventListener('click', this._onPanel);
