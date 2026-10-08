@@ -1,3 +1,5 @@
+import { makeAudioSamples, ENGINE_BASE } from './audioSamples.js';
+
 /**
  * Fully procedural audio (WebAudio) — no audio files to license or download.
  *
@@ -56,8 +58,7 @@ export class AudioSystem {
     const soft = ctx.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = 7000; soft.Q.value = 0.5;
     this.master.connect(soft).connect(comp).connect(ctx.destination);
 
-    this.reverb = ctx.createConvolver();
-    this.reverb.buffer = this._impulse(2.8, 2.2);
+    this.reverb = ctx.createConvolver();   // its impulse arrives with the samples
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 0.9;
     this.reverbSend.connect(this.reverb).connect(this.master);
@@ -68,36 +69,35 @@ export class AudioSystem {
     this.musicVerb = ctx.createGain(); this.musicVerb.gain.value = 0.35;
     this.music.connect(this.musicVerb).connect(this.reverbSend);
 
-    this.noise = this._noiseBuffer(3);
+    // Noise, reverb and engine samples (null until made): noise shots are
+    // silent until then, and the loops and the engine start with them.
+    this.noise = null;
     this._ambience();
     this._music();
     this.portalHum = null;
     this.birdTimer = 2;
     this.piyoTimer = 0;
+    samples(ctx.sampleRate).then((s) => this._useSamples(s));
   }
 
   // ---------------------------------------------------------------- helpers
-  _noiseBuffer(sec, brown = false) {
+  _useSamples(s) {
     const ctx = this.ctx;
-    const buf = ctx.createBuffer(1, ctx.sampleRate * sec, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < d.length; i++) {
-      const w = Math.random() * 2 - 1;
-      if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+    const buffer = (channels) => {
+      const b = ctx.createBuffer(channels.length, channels[0].length, ctx.sampleRate);
+      channels.forEach((d, c) => b.copyToChannel(d, c));
+      return b;
+    };
+    this.reverb.buffer = buffer(s.impulse);
+    this.noise = buffer([s.noise]);
+    this._engineCycle = buffer([s.engine]);
+    const brown = s.brown.map((d) => buffer([d]));
+    for (const [input, i] of this._loops) {
+      const src = ctx.createBufferSource();
+      src.buffer = i < 0 ? this.noise : brown[i]; src.loop = true;
+      src.connect(input); src.start();
     }
-    return buf;
-  }
-
-  _impulse(sec, decay) {
-    const ctx = this.ctx;
-    const len = ctx.sampleRate * sec;
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-    }
-    return buf;
+    this._loops = null;
   }
 
   _env(g, t, a, peak, d, sustain = 0) {
@@ -134,51 +134,45 @@ export class AudioSystem {
   // --------------------------------------------------------------- ambience
   _ambience() {
     const ctx = this.ctx;
+    // The noise loops start with the samples (_useSamples); here their
+    // filters and gains.
     // Low city hum (brown noise, lowpassed).
-    const hum = ctx.createBufferSource();
-    hum.buffer = this._noiseBuffer(4, true); hum.loop = true;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260;
     const hg = ctx.createGain(); hg.gain.value = 0.16;
-    hum.connect(lp).connect(hg).connect(this.amb); hum.start();
+    lp.connect(hg).connect(this.amb);
 
     // Wind: bandpassed noise with a slow random gust envelope.
-    const wind = ctx.createBufferSource();
-    wind.buffer = this.noise; wind.loop = true;
     const bp = ctx.createBiquadFilter(); bp.type = 'lowpass'; bp.frequency.value = 500; bp.Q.value = 0.3;
     this.windGain = ctx.createGain(); this.windGain.gain.value = 0.02;
     this.windFilter = bp;
-    wind.connect(bp).connect(this.windGain).connect(this.amb); wind.start();
+    bp.connect(this.windGain).connect(this.amb);
     this.gust = 0;
 
     // Distant traffic swells.
-    const traffic = ctx.createBufferSource();
-    traffic.buffer = this._noiseBuffer(4, true); traffic.loop = true;
     const tf = ctx.createBiquadFilter(); tf.type = 'lowpass'; tf.frequency.value = 500;
     this.trafficGain = ctx.createGain(); this.trafficGain.gain.value = 0.0;
-    traffic.connect(tf).connect(this.trafficGain).connect(this.amb); traffic.start();
+    tf.connect(this.trafficGain).connect(this.amb);
     this.trafficTimer = 4;
 
     // Train rumble (driven by world train position).
-    const train = ctx.createBufferSource();
-    train.buffer = this._noiseBuffer(4, true); train.loop = true;
     const trf = ctx.createBiquadFilter(); trf.type = 'lowpass'; trf.frequency.value = 220;
     this.trainGain = ctx.createGain(); this.trainGain.gain.value = 0;
-    train.connect(trf).connect(this.trainGain).connect(this.amb); train.start();
+    trf.connect(this.trainGain).connect(this.amb);
     this.trainClack = 0;
 
     // Summer cicadas (ミンミンゼミ / アブラゼミ): a high, buzzing, pulsing
     // drone near trees. Bandpassed noise with a fast tremolo, gain set by
     // how green the player's surroundings are (see update()).
-    const cic = ctx.createBufferSource();
-    cic.buffer = this.noise; cic.loop = true;
     const cbp = ctx.createBiquadFilter(); cbp.type = 'bandpass'; cbp.frequency.value = 4600; cbp.Q.value = 6;
     const trem = ctx.createGain(); trem.gain.value = 0.5;
     const lfo = ctx.createOscillator(); lfo.frequency.value = 38;
     const lfoAmt = ctx.createGain(); lfoAmt.gain.value = 0.5;
     lfo.connect(lfoAmt).connect(trem.gain); lfo.start();
     this.cicadaGain = ctx.createGain(); this.cicadaGain.gain.value = 0;
-    cic.connect(cbp).connect(trem).connect(this.cicadaGain).connect(this.amb); cic.start();
+    cbp.connect(trem).connect(this.cicadaGain).connect(this.amb);
     this.cicadaCycle = 0;
+    // Each loop's input and its noise: brown noise 0-2, or white (-1).
+    this._loops = [[lp, 0], [bp, -1], [tf, 1], [trf, 2], [cbp, -1]];
     this.chimeTimer = 3; this.crowTimer = 20;
   }
 
@@ -204,7 +198,7 @@ export class AudioSystem {
 
   /** Tyre squeal while sliding on hard ground (level 0…1), continuous. */
   skid(level) {
-    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (!this.noise || this.ctx.state !== 'running') return;
     const ctx = this.ctx, t = ctx.currentTime;
     if (!this._skid) {
       const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
@@ -428,49 +422,15 @@ export class AudioSystem {
    * pitch following rpm between idle and redline. Bicycles pass null.
    */
   /**
-   * One engine cycle as a looping buffer: firing pulses at BASE Hz, each a
-   * short combustion thump (two damped resonances + a little noise) with
-   * per-pulse variation, so the loop sounds like an engine instead of a
-   * synth tone. Playback rate follows the firing frequency (rpm).
-   */
-  _engineBuffer() {
-    const ctx = this.ctx, sr = ctx.sampleRate;
-    const BASE = 32, pulses = 16;                    // 16 firings per loop, irregular
-    const len = Math.round(sr * pulses / BASE);
-    const buf = ctx.createBuffer(1, len, sr);
-    const d = buf.getChannelData(0);
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let k = 0; k < pulses; k++) {
-      const t0 = Math.round((k + (rnd() - 0.5) * 0.08) * sr / BASE);
-      const amp = 0.75 + rnd() * 0.35;
-      const f1 = 95 + rnd() * 20, f2 = 210 + rnd() * 50, f3 = 520 + rnd() * 120;
-      const dur = Math.round(sr * 0.055);
-      for (let n = 0; n < dur; n++) {
-        const i = (t0 + n + len) % len, t = n / sr;
-        const env = Math.exp(-t * 55) * (1 - Math.exp(-t * 900));
-        d[i] += amp * env * (Math.sin(2 * Math.PI * f1 * t) * 0.9 + Math.sin(2 * Math.PI * f2 * t) * 0.45
-          + Math.sin(2 * Math.PI * f3 * t) * 0.12 + (rnd() - 0.5) * 0.35 * Math.exp(-t * 160));
-      }
-    }
-    // Normalise.
-    let m = 0;
-    for (let i = 0; i < len; i++) m = Math.max(m, Math.abs(d[i]));
-    for (let i = 0; i < len; i++) d[i] /= m || 1;
-    return { buf, BASE };
-  }
-
-  /**
    * Engine for the vehicle being driven (null = off). Layers:
    *   firing loop (rate = rpm) → soft saturation → exhaust low-pass (opens
    *   with throttle), plus a muffled intake rush under load.
    */
   engine(e) {
-    if (!this.ctx) return;
+    if (!this.noise) return;     // no samples yet
     const ctx = this.ctx, t = ctx.currentTime;
     if (!this._eng) {
-      const { buf, BASE } = this._engineBuffer();
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const src = ctx.createBufferSource(); src.buffer = this._engineCycle; src.loop = true;
       const shaper = ctx.createWaveShaper();
       const curve = new Float32Array(256);
       for (let i = 0; i < 256; i++) { const x = i / 127.5 - 1; curve[i] = Math.tanh(x * 1.8) / Math.tanh(1.8); }
@@ -486,7 +446,7 @@ export class AudioSystem {
       const ng = ctx.createGain(); ng.gain.value = 0;
       nz.connect(bp).connect(ng).connect(this.sfx);
       src.start(); nz.start();
-      this._eng = { src, lp, out, bp, ng, BASE, on: false };
+      this._eng = { src, lp, out, bp, ng, on: false };
     }
     const g = this._eng;
     if (!e) {
@@ -495,7 +455,7 @@ export class AudioSystem {
     }
     g.on = true;
     const f = e.idle + (e.max - e.idle) * e.rpm;            // firing frequency
-    g.src.playbackRate.setTargetAtTime(f / g.BASE, t, 0.06);
+    g.src.playbackRate.setTargetAtTime(f / ENGINE_BASE, t, 0.06);
     g.lp.frequency.setTargetAtTime(350 + f * 4 + e.load * 1400, t, 0.1);
     g.out.gain.setTargetAtTime(0.09 + e.load * 0.06 + e.rpm * 0.04, t, 0.12);
     g.bp.frequency.setTargetAtTime(600 + f * 6, t, 0.1);
@@ -645,4 +605,17 @@ export class AudioSystem {
       this.portalHum.hg.gain.setTargetAtTime(0.035 * Math.max(0, 1 - d / 20), t, 0.3);
     }
   }
+}
+
+// The sample data, made off the main thread (see audioSamples.js); on the
+// main thread where a worker can't run.
+function samples(sr) {
+  return new Promise((resolve) => {
+    const fallback = () => resolve(makeAudioSamples(sr));
+    let worker;
+    try { worker = new Worker(new URL('./audioSamplesWorker.js', import.meta.url), { type: 'module' }); } catch { fallback(); return; }
+    worker.onmessage = ({ data }) => { worker.terminate(); resolve(data); };
+    worker.onerror = () => { worker.terminate(); fallback(); };
+    worker.postMessage({ sr });
+  });
 }

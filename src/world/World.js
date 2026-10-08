@@ -7,6 +7,7 @@ import { PropMotion } from './PropMotion.js';
 import { Train } from './Train.js';
 import { Petals } from './Petals.js';
 import { Ambient } from './Ambient.js';
+import { PRESETS } from '../core/GraphicsSettings.js';
 import './CelLighting.js';
 
 /**
@@ -61,6 +62,15 @@ export class World {
     graphics.addCasters(city.casters);
   }
 
+  /**
+   * The graphics preset's share of the city (the renderer's tier changes
+   * when Settings picks another): heavy decoration's shadows on or off.
+   */
+  _applyPreset(preset) {
+    this._preset = preset;
+    for (const m of this.city.parts.detailShadow) m.setEnabled(preset.detailShadows);
+  }
+
   dispose() {
     for (const u of this.updaters) u.dispose?.();
     this.updaters.length = 0;
@@ -79,7 +89,9 @@ export class World {
 
   update(dt, camera, player) {
     for (const u of this.updaters) u.update(dt, camera, player);
-    this.city.lod.update(camera);
+    const preset = PRESETS[this.graphics.tier] || PRESETS.medium;
+    if (preset !== this._preset) this._applyPreset(preset);
+    this.city.lod.update(camera, preset.lodNear);
     this.trainX = this._ctx.trainX;
   }
 }

@@ -1,4 +1,6 @@
 import { Mesh, VertexData, VertexBuffer, Matrix, Vector3, PBRMaterial, MaterialPluginBase, TransformNode } from '@babylonjs/core';
+import { simplifyGeometry } from '../core/Simplify.js';
+import { SHADOW_ONLY_LAYER } from '../world/City.js';
 
 /**
  * Geometry tools for the drivable vehicles (Blender GLBs, see CarModel /
@@ -238,6 +240,14 @@ function subsetPart(q, tris) {
   return out;
 }
 
+/** A part with fewer triangles (simplifyGeometry settings), or itself when it can't be reduced. */
+function simplifiedPart(q, settings) {
+  // simplifyGeometry reads only indices, positions and normals.
+  const source = { getIndices: () => q.idx, getVerticesData: (kind) => (kind === VertexBuffer.PositionKind ? q.pos : q.nrm) };
+  const idx = simplifyGeometry(source, settings);
+  return idx ? subsetPart(q, idx) : q;
+}
+
 /** Fresh world matrix of a node (and its ancestors): Babylon caches them per frame. */
 export function syncWorld(node) {
   if (node.parent) syncWorld(node.parent);
@@ -262,12 +272,25 @@ export function treeMatrix(node, out = new Matrix()) {
   return out;
 }
 
+// Far-model simplification: 0.2% of a merged part's size (~9 mm on a car,
+// about a pixel on a phone from 15 m), keeping changes in surface normal.
+// The near model's 40-45k triangle paint shell was most of a parked car's
+// far model, drawn again for its shadow: six in view were ~250k triangles.
+const FAR_DETAIL = { error: 0.002, normals: 1 };
+// Its shadow: everything that casts in one shadow-only mesh, within 1% of
+// the vehicle's size (~4 cm on a car, two shadow-map texels): ~4k triangles
+// and one shadow draw instead of 16-20k and one per material. Lamp lenses
+// are left out: their shadow falls inside their own housings, and their
+// facets hardly simplify (~10k triangles a car).
+const FAR_SHADOW = { error: 0.01 };
+
 /**
  * Far level of detail: body and wheels baked into chassis space and merged,
  * one draw per material instead of ~25 (doors, wheels and steering are
- * separate meshes so they can move). Shown for parked vehicles away from the
- * camera, where nothing moves, so it looks identical. `skip` subtrees (cabin
- * detail, already hidden at distance) are left out.
+ * separate meshes so they can move), then simplified (FAR_DETAIL), with a
+ * coarser shadow stand-in (FAR_SHADOW) as its only caster. Shown for parked
+ * vehicles away from the camera, where nothing moves, so it looks the same.
+ * `skip` subtrees (cabin detail, already hidden at distance) are left out.
  */
 export function buildFarModel(chassis, roots, skip = []) {
   const scene = chassis.getScene();
@@ -296,12 +319,28 @@ export function buildFarModel(chassis, roots, skip = []) {
   const far = new TransformNode('far', scene);
   far.parent = chassis;
   const attrs = (q) => `${!!q.col}${!!q.rm}`;
+  const casting = [];
   for (const [mat, list] of byMat) {
     const groups = list.length > 1 && list.every((q) => attrs(q) === attrs(list[0])) ? [concatParts(list, mat)] : list;
-    for (const q of groups) meshFromPart(q, far, scene);
+    for (const q of groups) {
+      if (q.cast && !/lens/i.test(mat.name)) casting.push({ ...q, col: null, rm: null });
+      meshFromPart({ ...simplifiedPart(q, FAR_DETAIL), cast: false }, far, scene);
+    }
+  }
+  if (casting.length) {
+    const shadow = meshFromPart(simplifiedPart(concatParts(casting, shadowMaterial(scene)), FAR_SHADOW), far, scene);
+    shadow.name = 'farShadow';
+    shadow.layerMask = SHADOW_ONLY_LAYER;
   }
   far.setEnabled(false);
   return far;
+}
+
+/** Plain material of the far models' shadow stand-ins (drawn into the shadow map only). */
+let _shadowMat = null;
+function shadowMaterial(scene) {
+  if (!_shadowMat) _shadowMat = new PBRMaterial('vehicleShadow', scene);
+  return _shadowMat;
 }
 
 /**

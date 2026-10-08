@@ -1,6 +1,8 @@
 import { BoundingInfo, Color3, MaterialPluginBase, Matrix, Mesh, PBRMaterial, Quaternion, Vector3, VertexData } from '@babylonjs/core';
 import { torus } from '../interiors/Products.js';
 import { BRAND_TAG, PRINT_CELL, TAG_CELL, TAG_COLS, fabricTexture, garmentPrintTexture } from './GarmentPrint.js';
+import { simplifyGeometry } from '../core/Simplify.js';
+import { SHADOW_ONLY_LAYER } from '../world/City.js';
 
 /**
  * Clothes for the Sakura Style store: one procedural model per garment type
@@ -432,6 +434,40 @@ function fabric(scene, prints, cloth) {
   return m;
 }
 
+/** A mesh with a garment shape's vertex data (shapeData) and its own colour / print attributes. */
+function shapeMesh(scene, vd, own, print) {
+  const mesh = new Mesh('', scene);
+  vd.applyToMesh(mesh);
+  mesh.setVerticesData('aOwn', own, false, 4);
+  mesh.setVerticesData('aPrint', print, false, 3);
+  return mesh;
+}
+
+/** The vertices `index` uses of a garment shape's data (shapeData), compacted. */
+function subsetData(vd, own, print, index) {
+  const remap = new Int32Array(vd.positions.length / 3).fill(-1);
+  let n = 0;
+  const indices = new Uint32Array(index.length);
+  for (let i = 0; i < index.length; i++) {
+    const v = index[i];
+    if (remap[v] < 0) remap[v] = n++;
+    indices[i] = remap[v];
+  }
+  const pick = (src, stride) => {
+    if (!src) return null;
+    const out = new Float32Array(n * stride);
+    for (let v = 0; v < remap.length; v++) if (remap[v] >= 0) for (let k = 0; k < stride; k++) out[remap[v] * stride + k] = src[v * stride + k];
+    return out;
+  };
+  const out = new VertexData();
+  out.positions = pick(vd.positions, 3);
+  out.normals = pick(vd.normals, 3);
+  out.uvs = pick(vd.uvs, 2);
+  out.colors = pick(vd.colors, 4);
+  out.indices = indices;
+  return { vd: out, own: pick(own, 4), print: pick(print, 3) };
+}
+
 function shapeData(shape) {
   const parts = SHAPES[shape]();
   const n = parts.reduce((k, p) => k + p.positions.length / 3, 0);
@@ -446,10 +482,22 @@ function shapeData(shape) {
 const _q = new Quaternion(), _s = new Vector3(), _p = new Vector3(), _mat = new Matrix();
 const NO_LOOK = {};
 
+// Level of detail: with the camera more than FAR_NEAR metres outside the
+// store's bounds every garment draws a simplified copy (FAR_ERROR: 2% of a
+// garment's size, ~6 mm on a sneaker), and every garment's shadow comes from
+// that copy. In full detail the 72 sneaker pairs alone were 162k triangles,
+// drawn and shadowed from the car park. FAR_HYSTERESIS keeps a camera at
+// the threshold from flipping between the two.
+const FAR_ERROR = 0.02;
+const FAR_NEAR = 3;
+const FAR_HYSTERESIS = 1;
+const INSTANCE_BUFFERS = [['matrix', 16], ['color', 4], ['aStyle', 4], ['aAccent', 4]];
+
 /**
  * Every garment of the store as thin instances: per type one mesh, its units
  * added at stocking time (build() once), then moved with place() / hidden;
- * flush() uploads the changed buffers once per frame.
+ * flush() uploads the changed buffers once per frame and picks the level of
+ * detail (a simplified copy and shadow stand-in sharing the instance data).
  */
 export class GarmentSet {
   constructor(scene) {
@@ -457,7 +505,8 @@ export class GarmentSet {
     this.prints = garmentPrintTexture(scene);
     this.cloth = fabricTexture(scene);
     this.material = fabric(scene, this.prints, this.cloth);
-    this.groups = new Map();   // shape -> { mesh, units, matrices, colors, styles, accents, dirty }
+    this.groups = new Map();   // shape -> { mesh, far, shadow, meshes, units, matrices, colors, styles, accents, dirty }
+    this._near = true;
   }
 
   /**
@@ -482,30 +531,43 @@ export class GarmentSet {
    * then never needs a bounding refresh while one moves.
    */
   build(bounds) {
+    this.bounds = bounds;
     for (const [shape, g] of this.groups) {
       const { vd, own, print } = shapeData(shape);
-      const mesh = new Mesh(`mall:garment:${shape}`, this.scene);
-      vd.applyToMesh(mesh);
-      mesh.setVerticesData('aOwn', own, false, 4);
-      mesh.setVerticesData('aPrint', print, false, 3);
-      mesh.material = this.material;
-      mesh.isPickable = false;
-      mesh.receiveShadows = true;
       const n = g.units.length;
       g.matrices = new Float32Array(n * 16);
       g.colors = new Float32Array(n * 4);
       g.styles = new Float32Array(n * 4);
       g.accents = new Float32Array(n * 4);
       for (const u of g.units) this._dress(g, u);
-      mesh.thinInstanceSetBuffer('matrix', g.matrices, 16, false);
-      mesh.thinInstanceSetBuffer('color', g.colors, 4, false);
-      mesh.thinInstanceSetBuffer('aStyle', g.styles, 4, false);
-      mesh.thinInstanceSetBuffer('aAccent', g.accents, 4, false);
-      mesh.setBoundingInfo(new BoundingInfo(bounds.min, bounds.max));
-      mesh.doNotSyncBoundingInfo = true;
-      mesh.freezeWorldMatrix();   // units move in the instance buffer, the mesh never does
-      g.mesh = mesh;
+      g.mesh = this._mesh(`mall:garment:${shape}`, g, shapeMesh(this.scene, vd, own, print));
+      g.meshes = [g.mesh];
+      const index = simplifyGeometry(g.mesh.geometry, { error: FAR_ERROR });
+      if (!index) continue;
+      const far = subsetData(vd, own, print, index);
+      g.far = this._mesh(`mall:garment:${shape}:far`, g, shapeMesh(this.scene, far.vd, far.own, far.print));
+      g.far.setEnabled(false);
+      // Same geometry as the far copy, drawn into the shadow map only.
+      const shadow = new Mesh('', this.scene);
+      g.far.geometry.applyToMesh(shadow);
+      g.shadow = this._mesh(`mall:garment:${shape}:shadow`, g, shadow);
+      g.shadow.layerMask = SHADOW_ONLY_LAYER;
+      g.meshes.push(g.far, g.shadow);
     }
+  }
+
+  /** Set up `mesh` to draw group g's units (their instance buffers, the store's bounds). */
+  _mesh(name, g, mesh) {
+    mesh.name = name;
+    mesh.material = this.material;
+    mesh.isPickable = false;
+    mesh.receiveShadows = true;
+    const data = { matrix: g.matrices, color: g.colors, aStyle: g.styles, aAccent: g.accents };
+    for (const [kind, stride] of INSTANCE_BUFFERS) mesh.thinInstanceSetBuffer(kind, data[kind], stride, false);
+    mesh.setBoundingInfo(new BoundingInfo(this.bounds.min, this.bounds.max));
+    mesh.doNotSyncBoundingInfo = true;
+    mesh.freezeWorldMatrix();   // units move in the instance buffer, the mesh never does
+    return mesh;
   }
 
   /** Write a unit's dye and look into its group's instance buffers. */
@@ -518,10 +580,10 @@ export class GarmentSet {
     g.accents.set([_c.r, _c.g, _c.b, L.print === 'kaze' ? 1 : 0], i);
   }
 
-  get meshes() { return [...this.groups.values()].map((g) => g.mesh).filter(Boolean); }
+  get meshes() { return [...this.groups.values()].flatMap((g) => g.meshes || []); }
 
-  /** The garments' meshes: shadow casters (hangers and the folded pieces are too thin to matter). */
-  get casters() { return [...this.groups].filter(([shape, g]) => g.mesh && !HANGERS.has(shape) && shape !== 'folded').map(([, g]) => g.mesh); }
+  /** Shadow casters: the stand-ins, else the garment itself (hangers and the folded pieces are too thin to matter). */
+  get casters() { return [...this.groups].filter(([shape, g]) => g.mesh && !HANGERS.has(shape) && shape !== 'folded').map(([, g]) => g.shadow || g.mesh); }
 
   /** Put a unit at a world point, turned by yaw, tipped by `roll` (sway about its hook) and `pitch`. */
   place(u, x, y, z, yaw, roll = 0, pitch = 0) {
@@ -560,22 +622,42 @@ export class GarmentSet {
     const g = this.groups.get(u.shape);
     if (typeof item === 'string') { u.hex = item; u.look = NO_LOOK; } else { u.hex = item.color; u.look = item.style || NO_LOOK; }
     this._dress(g, u);
-    g.mesh.thinInstanceBufferUpdated('color');
-    g.mesh.thinInstanceBufferUpdated('aStyle');
-    g.mesh.thinInstanceBufferUpdated('aAccent');
+    for (const m of g.meshes) {
+      m.thinInstanceBufferUpdated('color');
+      m.thinInstanceBufferUpdated('aStyle');
+      m.thinInstanceBufferUpdated('aAccent');
+    }
   }
 
-  /** Upload what moved this frame. */
+  /** Per frame: the level of detail for the camera, then upload what moved. */
   flush() {
+    this._pickDetail();
     for (const g of this.groups.values()) {
       if (!g.dirty || !g.mesh) continue;
       g.dirty = false;
-      g.mesh.thinInstanceBufferUpdated('matrix');
+      for (const m of g.meshes) m.thinInstanceBufferUpdated('matrix');
+    }
+  }
+
+  /** Full detail with the camera inside (or within FAR_NEAR of) the store's bounds, the simplified copies beyond. */
+  _pickDetail() {
+    const cam = this.scene.activeCamera, b = this.bounds;
+    if (!cam || !b) return;
+    const p = cam.globalPosition;
+    const dx = Math.max(b.min.x - p.x, 0, p.x - b.max.x), dy = Math.max(b.min.y - p.y, 0, p.y - b.max.y), dz = Math.max(b.min.z - p.z, 0, p.z - b.max.z);
+    const d = Math.hypot(dx, dy, dz);
+    const near = this._near ? d < FAR_NEAR + FAR_HYSTERESIS : d < FAR_NEAR;
+    if (near === this._near) return;
+    this._near = near;
+    for (const g of this.groups.values()) {
+      if (!g.far) continue;
+      g.mesh.setEnabled(near);
+      g.far.setEnabled(!near);
     }
   }
 
   dispose() {
-    for (const g of this.groups.values()) g.mesh?.dispose();
+    for (const g of this.groups.values()) for (const m of g.meshes || []) m.dispose();
     this.groups.clear();
     this.material.dispose(true, false);
     this.prints.dispose();

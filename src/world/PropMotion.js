@@ -57,10 +57,14 @@ export class PropMotion {
       const red = reds.filter((m) => crossing(m) === cz), green = greens.filter((m) => crossing(m) === cz);
       if (!red.length || !green.length) continue;
       const redMat = this._own(red), greenMat = this._own(green);
-      let t = cz * 0.37;
+      let t = cz * 0.37, shown = -1;
       this.updaters.push((dt) => {
         t = (t + dt) % 20;
         const on = t < 9 ? 1 : t < 12 ? (Math.floor(t * 4) % 2) : 0;
+        // Only on a change: Babylon's setter marks the material's meshes
+        // dirty (~1.7 ms a frame at CPU 4× when set every frame).
+        if (on === shown) return;
+        shown = on;
         greenMat.emissiveIntensity = on * 2.2;
         redMat.emissiveIntensity = on ? 0 : 2.4;
       });

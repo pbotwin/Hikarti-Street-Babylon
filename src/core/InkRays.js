@@ -15,6 +15,7 @@ import {
 const RAYS_COLOR = [1.0, 0.7, 0.42];   // warm light added by the rays (linear)
 const RAYS_STRENGTH = 0.07;
 const INK = [0.32, 0.24, 0.34];
+const RAYS_MAX = 20;     // the most ray samples any preset takes
 
 Effect.ShadersStore.inkRaysFragmentShader = `
   precision highp float;
@@ -55,20 +56,21 @@ const RAYS_FRAGMENT = `
   varying vec2 vUV;
   uniform sampler2D sceneSampler, depthSampler;
   uniform vec2 uSun;
+  uniform float uSteps;
   float h(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   void main() {
-    const int N = RAYS_N;
-    vec2 delta = (uSun - vUV) / float(N) * 0.9;
+    vec2 delta = (uSun - vUV) / uSteps * 0.9;
     vec2 p = vUV + delta * h(gl_FragCoord.xy);   // jitter hides banding
     float acc = 0.0, w = 1.0;
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < RAYS_MAX; i++) {
+      if (float(i) >= uSteps) break;
       float sky = step(0.9999, texture2D(depthSampler, p).x);
       float lum = dot(min(texture2D(sceneSampler, p).rgb, vec3(4.0)), vec3(0.33));
       acc += sky * lum * w;
       w *= 0.93;
       p += delta;
     }
-    acc /= float(N);
+    acc /= uSteps;
     // Stronger near the sun, fading with distance from it.
     float fall = 1.0 - smoothstep(0.0, 0.9, length((vUV - uSun) * vec2(1.0, 1.6)));
     gl_FragColor = vec4(acc * fall, 0.0, 0.0, 1.0);
@@ -89,6 +91,9 @@ export class InkRays {
     this._sun = { x: 0.5, y: 0.8 };
     this._rays = [0, 0, 0];
     this._p = new Vector3();
+    // Samples the shader takes: the last non-zero count, so rays switched off
+    // fade out as they were.
+    this._raysSteps = rays || RAYS_MAX;
 
     this.post = new PostProcess('inkRays', 'inkRays',
       ['uResolution', 'uNear', 'uFar', 'uStrength', 'uThreshold', 'uInk', 'uRays'], ['depthSampler', 'raysSampler'],
@@ -97,19 +102,20 @@ export class InkRays {
     // The scene's depth, resolved from MSAA with the colour; and the rays at
     // half the size, re-made with the image.
     this.post.onSizeChangedObservable.add(() => this._targets());
-    if (rays > 0) {
-      this._renderer = new EffectRenderer(engine);
-      this._raysFx = new EffectWrapper({
-        engine, name: 'rays', fragmentShader: RAYS_FRAGMENT, uniformNames: ['uSun'], samplerNames: ['sceneSampler', 'depthSampler'],
-        defines: [`#define RAYS_N ${rays}`],
-      });
-      this._raysFx.onApplyObservable.add(() => {
-        const fx = this._raysFx.effect;
-        fx.setFloat2('uSun', this._sun.x, this._sun.y);
-        fx.setTexture('sceneSampler', this._scene);
-        fx.setTexture('depthSampler', this._depth);
-      });
-    }
+    // One rays shader for every preset (the sample count is a uniform): a
+    // count compiled in as a define was a new program at each preset switch.
+    this._renderer = new EffectRenderer(engine);
+    this._raysFx = new EffectWrapper({
+      engine, name: 'rays', fragmentShader: RAYS_FRAGMENT, uniformNames: ['uSun', 'uSteps'], samplerNames: ['sceneSampler', 'depthSampler'],
+      defines: [`#define RAYS_MAX ${RAYS_MAX}`],
+    });
+    this._raysFx.onApplyObservable.add(() => {
+      const fx = this._raysFx.effect;
+      fx.setFloat2('uSun', this._sun.x, this._sun.y);
+      fx.setFloat('uSteps', this._raysSteps);
+      fx.setTexture('sceneSampler', this._scene);
+      fx.setTexture('depthSampler', this._depth);
+    });
     // Rays drawn once the scene is done (this fires after the pass has bound
     // its own output, which is bound again afterwards).
     this.post.onActivateObservable.add(() => this._drawRays());
@@ -159,17 +165,30 @@ export class InkRays {
     const visible = this._raysMix * facing * fade;
     const k = RAYS_STRENGTH * visible;
     this._rays[0] = RAYS_COLOR[0] * k; this._rays[1] = RAYS_COLOR[1] * k; this._rays[2] = RAYS_COLOR[2] * k;
-    if (!this._raysFx || visible <= 0.001 || !this._raysFx.effect.isReady()) return;
+    if (visible <= 0.001 || !this._raysFx.effect.isReady()) return;
     this._sun.x = p.x * 0.5 + 0.5; this._sun.y = p.y * 0.5 + 0.5;
     const target = this.engine._currentRenderTarget;
     this._renderer.render(this._raysFx, this._raysRT);
     if (target) this.engine.bindFramebuffer(target, 0, undefined, undefined, this.post.forceFullscreenViewport);
   }
 
+  /**
+   * A preset change, in place: rebuilding the pass instead put it after the
+   * post pipeline in the camera's chain and recompiled its shaders.
+   */
+  configure({ samples, rays }) {
+    this.raysSamples = rays;
+    if (rays > 0) this._raysSteps = rays;
+    if (this.post.samples === samples) return;
+    this.post.samples = samples;
+    // The resolved depth target belongs to the MSAA buffer it was made with.
+    if (this.post.inputTexture) this._targets();
+  }
+
   dispose() {
     this.post.dispose(this.camera);
     this._raysRT?.dispose();
-    this._raysFx?.dispose();
-    this._renderer?.dispose();
+    this._raysFx.dispose();
+    this._renderer.dispose();
   }
 }

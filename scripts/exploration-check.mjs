@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { chromium } from 'playwright-core';
 import { SIDE_MISSIONS } from '../src/gameplay/SideMissionData.js';
+import { REWARDS } from '../src/gameplay/ShopData.js';
 
 const url = process.argv[2] || 'http://127.0.0.1:5180/?autostart';
 const out = 'shots/exploration';
@@ -78,7 +79,10 @@ try {
     await talk(mission.giver); await page.keyboard.press('Enter');
     assert.equal(await status(mission.id), 'completed', `${mission.id} reward`);
   }
-  assert.equal(await page.evaluate(() => window.__game.state.coins), 305);
+  // The four favors pay 305; every district discovered on the way pays too.
+  const districts = await page.evaluate(() => window.__game.saves.current.stats.districts.length);
+  const expected = 305 + REWARDS.district * districts;
+  assert.equal(await page.evaluate(() => window.__game.state.coins), expected);
   const story = await page.evaluate(() => {
     const g = window.__game;
     for (const item of g.collectibles.items) {
@@ -94,7 +98,7 @@ try {
   await snapshot('completed-journal');
   await page.keyboard.press('Escape');
   await page.keyboard.press('b');
-  assert.match(await page.locator('.wallet').innerText(), /305/);
+  assert.match(await page.locator('.wallet').innerText(), new RegExp(String(expected)));
   await page.keyboard.press('Escape');
 
   // Reset must clean up progress and restore both input and the mission props.
@@ -185,6 +189,6 @@ try {
   await page.locator('[data-panel="map"]').tap();
   await snapshot('landscape-map');
   assert.deepEqual(errors, [], 'No browser runtime errors');
-  console.log(`PASS: ${population.count} NPCs; 4 missions; 305 coins; reset; ${cityAudit.blocks} city buildings; ${cityAudit.roads} clear roads; full north traversal; map zoom; touch journal; desktop, portrait and landscape UI.`);
+  console.log(`PASS: ${population.count} NPCs; 4 missions; ${expected} coins; reset; ${cityAudit.blocks} city buildings; ${cityAudit.roads} clear roads; full north traversal; map zoom; touch journal; desktop, portrait and landscape UI.`);
   console.log(`Screenshots: ${out}`);
 } finally { await browser.close(); }

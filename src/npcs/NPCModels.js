@@ -260,24 +260,46 @@ export function retone(tex, hex, { srgb = false, whites = false } = {}) {
 }
 
 async function retoneTexture(tex, hex, srgb, whites) {
-  await new Promise((res) => Texture.WhenAllReady([tex], res));
-  const { width: w, height: h } = tex.getSize();
-  // The texels as uploaded (GPU row order); the copy is uploaded the same way.
-  const px = new Uint8Array((await tex.readPixels()).buffer);
   // Residents' colours were tuned against linear values; `srgb` matches the
   // target to the texture's own (sRGB) pixels, so a pastel stays a pastel.
   const c = Color3.FromHexString(hex);
   const t = srgb ? c : c.toLinearSpace(true);   // exact sRGB curve, as three converts hex colours
   const [th, ts, tv] = rgb2hsv(t.r, t.g, t.b);
-  const data = await retoneOffThread(px, th, ts, tv, { whites });
-  const out = RawTexture.CreateRGBATexture(data, w, h, tex.getScene(), true, false, Texture.TRILINEAR_SAMPLINGMODE);
+  const pixels = async () => {
+    await new Promise((res) => Texture.WhenAllReady([tex], res));
+    // The texels as uploaded (GPU row order); the copy is uploaded the same way.
+    const px = new Uint8Array((await tex.readPixels()).buffer);
+    return retoneOffThread(px, th, ts, tv, { whites });
+  };
+  const data = await pixels();
+  const { width: w, height: h } = tex.getSize();
+  const scene = tex.getScene(), engine = scene.getEngine();
+  const out = RawTexture.CreateRGBATexture(data, w, h, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE);
   out.name = `${tex.name}|${hex}`;
   out.gammaSpace = tex.gammaSpace;
   out.wrapU = tex.wrapU; out.wrapV = tex.wrapV;
   out.anisotropicFilteringLevel = 4;
-  // Once on the GPU the CPU copy (kept for context-loss restore) is dead
-  // weight: ~200 MB for all residents, too much for iOS Safari.
-  out.getInternalTexture()._bufferView = null;
+  // Once on the GPU the CPU copy (what Babylon restores a lost WebGL context
+  // from) is dead weight: ~200 MB for all residents, too much for iOS Safari.
+  // After a lost context (Android app switching) the copy is re-toned again,
+  // once the source has reloaded (it has no load event then); without this,
+  // every re-toned piece was black.
+  const dropCopy = () => { out.getInternalTexture()._bufferView = null; };
+  dropCopy();
+  let reload = null;
+  const restored = engine.onContextRestoredObservable.add(() => {
+    reload = scene.onBeforeRenderObservable.add(async () => {
+      if (!tex.isReady()) return;
+      scene.onBeforeRenderObservable.remove(reload);
+      reload = null;
+      out.update(await pixels());
+      dropCopy();
+    });
+  });
+  out.onDisposeObservable.addOnce(() => {
+    engine.onContextRestoredObservable.remove(restored);
+    scene.onBeforeRenderObservable.remove(reload);
+  });
   return out;
 }
 

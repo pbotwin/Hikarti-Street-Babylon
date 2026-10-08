@@ -200,7 +200,10 @@ export class Ambient {
     mesh.freezeWorldMatrix();
     mat.freeze();
     this.disposables.push(tex, mat);
-    this.scr = { tex, g: tex.getContext(), w: 256, h: 160, t: 0 };
+    this.scr = { tex, g: tex.getContext(), w: 256, h: 160, t: 0, seen: false };
+    // Redrawn only while someone sees it (it was drawn last frame): each
+    // redraw is a canvas paint and a texture upload, 12.5 times a second.
+    mesh.onBeforeRenderObservable.add(() => { this.scr.seen = true; });
     this._drawScreen(0);
   }
 
@@ -272,9 +275,9 @@ export class Ambient {
       this.avOn = on;
       for (let k = 0; k < this.avSprites.length; k++) this.avSprites[k].color.a = on ? 1 : 0.08;
     }
-    // LED screen at ~12 fps.
+    // LED screen at ~12 fps, while on screen.
     this.scr.t += dt;
-    if (this.scr.t > 0.08) { this.scr.t = 0; this._drawScreen(t); }
+    if (this.scr.t > 0.08 && this.scr.seen) { this.scr.t = 0; this.scr.seen = false; this._drawScreen(t); }
   }
 
   dispose() {

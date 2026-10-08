@@ -32,7 +32,7 @@ export async function loadCity(scene, onProgress) {
   }).then((r) => { done += weight; return { file, meshes: r.meshes }; })));
 
   const meshes = [], casters = [];
-  const parts = { anim: {}, wind: [], grass: null, shadow: [] };
+  const parts = { anim: {}, wind: [], grass: null, shadow: [], detailShadow: [] };
   const lod = new CityLod();
   for (const { file, meshes: list } of results) {
     for (const m of list) {
@@ -46,6 +46,10 @@ export async function loadCity(scene, onProgress) {
       if (m.thinInstanceCount > 0) m.thinInstanceRefreshBoundingInfo(false);
       if (tags.instanceColor) m.thinInstanceSetBuffer('color', instanceColors(tags.instanceColor), 4, true);
       if (tags.shadow) { m.layerMask = SHADOW_ONLY_LAYER; parts.shadow.push(m); }
+      // Plant and ivy balcony bays (~10k triangles each): their shadows fall
+      // on the facade and are dropped on the lower presets (the original's
+      // detailShadow tag, Buildings.flushBays; the material names the bay).
+      if (tags.shadow && /^bay_lit_/.test(m.material?.name)) parts.detailShadow.push(m);
       if (tags.cast || tags.shadow) casters.push(m);
       if (tags.lod) lod.add(m, tags.lod);
       if (tags.wind) parts.wind.push({ mesh: m, ...tags.wind });
@@ -85,12 +89,12 @@ function tuneMaterial(mat) {
 
 /**
  * Distance level of detail, as the original's InstanceLod: trees and balcony
- * cells draw full detail within NEAR of the camera and their simplified twin
- * further away. A cell turns detailed inside NEAR and back only beyond
- * NEAR + HYSTERESIS (the camera sways a little even standing still, and a
- * cell at the threshold flickered between its versions).
+ * cells draw full detail within `near` of the camera (the graphics preset's
+ * lodNear) and their simplified twin further away. A cell turns detailed
+ * inside `near` and back only beyond near + HYSTERESIS (the camera sways a
+ * little even standing still, and a cell at the threshold flickered between
+ * its versions).
  */
-const NEAR = 35;
 const HYSTERESIS = 4;
 
 class CityLod {
@@ -106,17 +110,17 @@ class CityLod {
     mesh.setEnabled(level === 'hi');
   }
 
-  update(camera) {
+  update(camera, near) {
     const p = camera.position;
     for (const c of this.cells.values()) {
       const s = c.sphere;
       if (!s) continue;
       const d = Math.hypot(p.x - s.centerWorld.x, p.y - s.centerWorld.y, p.z - s.centerWorld.z) - s.radiusWorld;
-      const near = c.near ? d < NEAR + HYSTERESIS : d < NEAR;
-      if (near === c.near) continue;
-      c.near = near;
-      for (const m of c.hi) m.setEnabled(near);
-      for (const m of c.lo) m.setEnabled(!near);
+      const detailed = c.near ? d < near + HYSTERESIS : d < near;
+      if (detailed === c.near) continue;
+      c.near = detailed;
+      for (const m of c.hi) m.setEnabled(detailed);
+      for (const m of c.lo) m.setEnabled(!detailed);
     }
   }
 }

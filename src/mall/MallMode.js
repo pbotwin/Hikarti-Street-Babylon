@@ -124,9 +124,37 @@ export class MallMode {
     const keep = new Set([character.root, camera, this.deps.graphics.sky]);
     this._sleeping = scene.rootNodes.filter((n) => !keep.has(n) && n.isEnabled?.() && n.setEnabled && !n.getClassName?.().includes('Light'));
     for (const n of this._sleeping) n.setEnabled(false);
+    // Disabled meshes still went through Babylon's per-frame active-mesh pass
+    // (readiness, vertex counts and LOD lookups come before the enabled test):
+    // ~2,600 sleeping city meshes were ~25% of a frame in the mall (that pass
+    // 3.8–4.2 ms → 0.6 ms at CPU 4× without them). The trip's candidates are
+    // the meshes awake, listed again only when meshes come or go.
+    const asleep = new Set();
+    for (const n of this._sleeping) {
+      if (n.getTotalVertices) asleep.add(n);
+      for (const m of n.getChildMeshes(false)) asleep.add(m);
+    }
+    const awake = { data: [], length: 0 };
+    let stale = true;
+    const restale = () => { stale = true; };
+    this._meshObservers = [scene.onNewMeshAddedObservable.add(restale), scene.onMeshRemovedObservable.add(restale)];
+    this._allCandidates = scene.getActiveMeshCandidates;
+    scene.getActiveMeshCandidates = () => {
+      if (stale) {
+        awake.data = scene.meshes.filter((m) => !asleep.has(m));
+        awake.length = awake.data.length;
+        stale = false;
+      }
+      return awake;
+    };
   }
 
   _wake() {
+    const scene = this.deps.scene;
+    scene.getActiveMeshCandidates = this._allCandidates;
+    scene.onNewMeshAddedObservable.remove(this._meshObservers[0]);
+    scene.onMeshRemovedObservable.remove(this._meshObservers[1]);
+    this._meshObservers = this._allCandidates = null;
     for (const n of this._sleeping) if (!n.isDisposed?.()) n.setEnabled(true);
     this._sleeping = [];
   }

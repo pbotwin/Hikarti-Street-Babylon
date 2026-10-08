@@ -8,30 +8,25 @@
  * can also pick a preset in Settings; that choice is saved.
  *
  * Every preset keeps the anime look (cel shading, ink outlines, shadows);
- * lower ones trade resolution, shadow softness, ambient occlusion, bloom,
- * shadows of heavy decoration and how far away residents are drawn.
+ * lower ones trade resolution, shadow-map size, MSAA, bloom and light rays
+ * (the renderer's side, core/Graphics.js PRESETS), shadows of heavy
+ * decoration (detailShadows: plant and ivy balconies, read by World), level
+ * of detail and how far away residents are drawn.
+ *
+ * Trees and balcony bays draw full detail within lodNear metres of the
+ * camera and a simplified copy beyond (World's city LOD). A plant or ivy bay
+ * is ~10k triangles against ~2.5k, but the copy loses most of the greenery,
+ * so High keeps the original's 35 m and the lower presets switch nearer.
  *
  * Residents' outline shells (a second draw of every mesh) are drawn only
  * close up (npcOutlines, metres). Shells everywhere cost ~6 ms a frame on a
  * phone CPU.
  */
 export const PRESETS = {
-  low: {
-    label: 'Low', dpr: 1, pixels: 1.1e6, shadowSize: 1024, softShadows: false,
-    rays: 0, bloom: false, npcDistance: 38, npcOutlines: 0, detailShadows: false,
-  },
-  medium: {
-    label: 'Medium', dpr: 1.5, pixels: 2.2e6, shadowSize: 2048, softShadows: false,
-    rays: 10, bloom: true, npcDistance: 50, npcOutlines: 0, detailShadows: false,
-  },
-  high: {
-    label: 'High', dpr: 2, pixels: 3.7e6, shadowSize: 2048, softShadows: true,
-    rays: 20, bloom: true, npcDistance: 66, npcOutlines: 10, detailShadows: true,
-  },
-  ultra: {
-    label: 'Ultra', dpr: 2.5, pixels: 8.3e6, shadowSize: 4096, softShadows: true,
-    rays: 20, bloom: true, npcDistance: 90, npcOutlines: 30, detailShadows: true,
-  },
+  low: { label: 'Low', npcDistance: 38, npcOutlines: 0, detailShadows: false, lodNear: 16 },
+  medium: { label: 'Medium', npcDistance: 50, npcOutlines: 0, detailShadows: false, lodNear: 24 },
+  high: { label: 'High', npcDistance: 66, npcOutlines: 10, detailShadows: true, lodNear: 35 },
+  ultra: { label: 'Ultra', npcDistance: 90, npcOutlines: 30, detailShadows: true, lodNear: 40 },
 };
 export const TIERS = ['low', 'medium', 'high', 'ultra'];
 

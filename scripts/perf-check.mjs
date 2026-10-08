@@ -22,9 +22,11 @@ const chrome = [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
   '/usr/bin/google-chrome',
 ].find((p) => p && fs.existsSync(p));
 const gpuArgs = process.platform === 'win32' ? ['--use-angle=d3d11'] : [];
+// Headless on the GPU (no window over the user's screen); the background
+// flags keep it at full rate when other windows are in front.
 const browser = await chromium.launch({
-  executablePath: chrome, headless: false,
-  args: [...gpuArgs, '--ignore-gpu-blocklist', '--disable-frame-rate-limit', '--disable-gpu-vsync', '--enable-precise-memory-info'],
+  executablePath: chrome, headless: true,
+  args: [...gpuArgs, '--enable-gpu', '--ignore-gpu-blocklist', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-frame-rate-limit', '--disable-gpu-vsync', '--enable-precise-memory-info'],
 });
 const SPOTS = [[0, 40, 0], [0, 78, 0], [0, 115, Math.PI], [0, 250, 0]];
 const TOUR = [[0, 20], [0, 78], [0, 115], [0, 160], [0, 250], [0, 340], [-100, 250], [100, 250], [118, 220], [-60, 300], [0, 0]];

@@ -17,17 +17,18 @@ import { ToonPlugin } from '../player/Vrm.js';
  *    follows her, snapped to texels, holding only the casters inside it
  *  - the original's ink outlines and light rays (InkRays), then HDR post:
  *    MSAA, bloom, ACES tone mapping, contrast, vignette, sharpen
- * Presets scale shadow resolution and softness, post effects and render scale.
+ * Presets scale shadow resolution, MSAA, post effects and render scale; a
+ * switch changes them in place (see apply).
  */
 // The original's shadow square (half size, m) and how far behind it the light sits.
 const SHADOW_EXTENT = 22;
 const SHADOW_BACK = 70;
 
 export const PRESETS = {
-  low: { label: 'Low', scale: 0.75, shadow: 1024, softShadows: false, msaa: 1, fxaa: true, bloom: false, rays: 0 },
-  medium: { label: 'Medium', scale: 1, shadow: 2048, softShadows: false, msaa: 2, fxaa: false, bloom: true, rays: 10 },
-  high: { label: 'High', scale: 1, shadow: 2048, softShadows: true, msaa: 4, fxaa: false, bloom: true, rays: 20 },
-  ultra: { label: 'Ultra', scale: 1, shadow: 4096, softShadows: true, msaa: 4, fxaa: false, bloom: true, rays: 20 },
+  low: { label: 'Low', scale: 0.75, shadow: 1024, msaa: 1, fxaa: true, bloom: false, rays: 0 },
+  medium: { label: 'Medium', scale: 1, shadow: 2048, msaa: 2, fxaa: false, bloom: true, rays: 10 },
+  high: { label: 'High', scale: 1, shadow: 2048, msaa: 4, fxaa: false, bloom: true, rays: 20 },
+  ultra: { label: 'Ultra', scale: 1, shadow: 4096, msaa: 4, fxaa: false, bloom: true, rays: 20 },
 };
 
 /** Preset for this device from the GPU name, platform and memory. */
@@ -243,17 +244,34 @@ export class Graphics {
     }
   }
 
-  /** Apply a preset (call once at start, again when changed). */
+  /**
+   * Apply a preset (call once at start, again when changed). The first call
+   * builds the shadow map and the post chain; a switch changes them in place.
+   * Rebuilding the pipeline froze the game for 1.5–2 s (14–30 s at CPU 4×):
+   * every build disposes and re-creates its image-processing pass, which
+   * flips the scene's applyByPostProcess, and each of ~900 materials then
+   * walks all ~2,300 meshes to mark its shaders dirty, twice per build and
+   * several builds per switch.
+   */
   apply(tier) {
-    if (tier === this.tier && this.shadows) return;
+    if (tier === this.tier) return;
     const p = PRESETS[tier] || PRESETS.medium;
     this.tier = tier;
-    const { scene, camera } = this;
     this._applyScale();
+    if (!this.shadows) this._build(p);
+    if (this.shadows.mapSize !== p.shadow) {
+      // A new map texture: the old one's render list and timer go with it.
+      this.shadows.mapSize = p.shadow;
+      this._hookShadowMap();
+    }
+    this.inkRays.configure({ samples: p.msaa, rays: p.rays });
+    this._postEffects(p);
+  }
 
+  /** The shadow generator and post chain, made once for every preset. */
+  _build(p) {
+    const { scene, camera, sun } = this;
     // Shadows (the original's numbers): one map, a ±22 m square, 1–140 m deep.
-    this.shadows?.dispose();
-    const sun = this.sun;
     sun.autoUpdateExtends = false;
     sun.orthoLeft = -SHADOW_EXTENT; sun.orthoRight = SHADOW_EXTENT;
     sun.orthoTop = SHADOW_EXTENT; sun.orthoBottom = -SHADOW_EXTENT;
@@ -261,28 +279,23 @@ export class Graphics {
     const sg = new ShadowGenerator(p.shadow, sun);
     sg.bias = 0.0008;
     sg.normalBias = 0.02;
+    // PCF at Babylon's default (high) quality on every preset: the quality is
+    // part of every lit material's shader, so a per-preset one recompiled
+    // them all at a switch.
     sg.usePercentageCloserFiltering = true;
-    sg.filteringQuality = p.softShadows ? Constants.TEXTURE_FILTERING_QUALITY_HIGH : Constants.TEXTURE_FILTERING_QUALITY_LOW;
     sg.darkness = 0;   // shade is lit by the sky fill only, as in the original
     for (const m of this.casters) sg.addShadowCaster(m, false);
-    const map = sg.getShadowMap();
-    map.getCustomRenderList = () => this._shadowList;
-    // Drawn when the shadow timer says so (see the constructor), not every frame.
-    map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
-    this._shadowAt = -Infinity;
     this.shadows = sg;
+    this._hookShadowMap();
 
     // Post-processing: ink and rays first (they take the MSAA scene and its
-    // depth), then Babylon's pipeline.
-    const ink = this.inkRays?.strength ?? 0.6;
-    this.pipeline?.dispose();
-    this.inkRays?.dispose();
+    // depth), then Babylon's pipeline, built once with every effect a preset
+    // may use (so their shaders compile at load) and never rebuilt (see apply).
     this.inkRays = new InkRays(scene, camera, this.sunDir, { samples: p.msaa, rays: p.rays });
-    this.inkRays.strength = ink;
     this.inkRays.raysAllowed = this._raysAllowed;
-    const pipe = new DefaultRenderingPipeline('post', true, scene, [camera]);
-    pipe.fxaaEnabled = p.fxaa;
-    pipe.bloomEnabled = p.bloom;
+    const pipe = new DefaultRenderingPipeline('post', true, scene, [camera], false);
+    pipe.fxaaEnabled = true;
+    pipe.bloomEnabled = true;
     pipe.bloomThreshold = 0.92;
     pipe.bloomWeight = 0.22;
     pipe.bloomKernel = 64;
@@ -290,8 +303,29 @@ export class Graphics {
     pipe.sharpenEnabled = true;
     pipe.sharpen.edgeAmount = 0.22;
     pipe.imageProcessingEnabled = true;
+    pipe.prepare();
+    // Babylon re-sizes the bloom blur with the render scale, and each size is
+    // a new shader: compiled mid-play whenever the governor or a preset
+    // changed the resolution. The blur keeps its load-time size instead.
+    this.engine.onResizeObservable.remove(pipe._resizeObserver);
     this.pipeline = pipe;
+  }
 
+  /** The shadow map draws the culled casters, when the shadow timer says so (see the constructor). */
+  _hookShadowMap() {
+    const map = this.shadows.getShadowMap();
+    map.getCustomRenderList = () => this._shadowList;
+    map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+    this._shadowAt = -Infinity;
+  }
+
+  /** The pipeline's optional effects on or off, without a rebuild. */
+  _postEffects({ fxaa, bloom }) {
+    const mgr = this.scene.postProcessRenderPipelineManager, pipe = this.pipeline;
+    for (const [effect, on] of [[pipe.FxaaPostProcessId, fxaa], [pipe.bloom._name, bloom]]) {
+      if (on) mgr.enableEffectInPipeline(pipe.name, effect, this.camera);
+      else mgr.disableEffectInPipeline(pipe.name, effect, this.camera);
+    }
   }
 
   /** Meshes that cast shadows (kept across preset changes). */
@@ -334,12 +368,15 @@ export class Graphics {
     }
     const list = this._shadowList;
     this._shadowList = this.casters.filter((m) => !m.isDisposed());
+    // Every post effect too, so a later preset switch draws nothing new.
+    this._postEffects({ fxaa: true, bloom: true });
     this.shadows?.getShadowMap()?.resetRefreshCounter();
     scene.incrementRenderId();
     await scene.whenReadyAsync();
     scene.render();
     this.engine._gl?.finish();
     this._shadowList = list;
+    this._postEffects(PRESETS[this.tier] || PRESETS.medium);
     for (const [n, enabled, visible, always] of saved) {
       n.setEnabled(enabled);
       if (n.getTotalVertices) { n.isVisible = visible; n.alwaysSelectAsActiveMesh = always; }
