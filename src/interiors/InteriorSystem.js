@@ -31,6 +31,10 @@ import { Storefronts } from './Storefronts.js';
  */
 
 const CAT_OF = { drink: 'drink', food: 'food', read: 'read', top: 'top', bottom: 'bottom', shoes: 'shoes' };
+// Leaving a shop she comes out this far in front of its doors (m): where she
+// walked in could be deep in the door's alcove, the camera jammed against her.
+const EXIT_STEP = 1.1;
+const SLOT_REACH = 0.75;   // m from a shelf slot's floor spot to take from it
 const _a = new Vector3(), _b = new Vector3(), _c = new Vector3();
 const _q = new Quaternion();
 const ease = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
@@ -268,8 +272,10 @@ export class InteriorSystem {
     const kind = TEMPLATE_OF[spot.shop];
     const room = this.rooms[kind];
     if (!room || this.inside || this._fading) return;
-    const p = this.player.position;
-    const back = { x: p.x, y: p.y, z: p.z, yaw: this.player.yaw + Math.PI };
+    const p = this.player.position, f = spot.front;
+    // Back out a step clear of the doors, facing the street.
+    const back = f ? { x: f.door.x + f.out.x * EXIT_STEP, y: p.y, z: f.door.z + f.out.z * EXIT_STEP, yaw: Math.atan2(f.out.x, f.out.z) }
+      : { x: p.x, y: p.y, z: p.z, yaw: this.player.yaw + Math.PI };
     this._fade(() => this._open(spot, back));
   }
 
@@ -541,10 +547,22 @@ export class InteriorSystem {
       }
       if (d < bd) { bd = d; best = { type, ...payload }; }
     };
+    // Shelves: of the slots in reach she faces, the one nearest the camera's
+    // aim (a shelf column's slots share one floor spot: the nearest-first
+    // test only ever offered its first, whichever shelf she looked at).
+    const rig = this.cameraRig, eye = rig.camera.position, cp = Math.cos(rig.pitch);
+    const ax = Math.sin(rig.yaw) * cp, ay = -Math.sin(rig.pitch), az = Math.cos(rig.yaw) * cp;
+    let aim = -Infinity, slot = null;
     for (const s of room.slots) {
       if (!s.item || !s.units.some((u) => u.visible)) continue;
-      consider('slot', s.front.x, s.front.z, { slot: s }, 0.75, s.x, s.z);
+      const d = Math.hypot(lx - s.front.x, lz - s.front.z);
+      const vx = s.x - lx, vz = s.z - lz;
+      if (d > SLOT_REACH || (vx * fx + vz * fz) / (Math.hypot(vx, vz) || 1) < 0.2) continue;
+      const cx = room.origin.x + s.x - eye.x, cy = s.y + 0.1 - eye.y, cz = room.origin.z + s.z - eye.z;
+      const cos = (cx * ax + cy * ay + cz * az) / (Math.hypot(cx, cy, cz) || 1);
+      if (cos > aim) { aim = cos; bd = d; slot = s; }
     }
+    if (slot) best = { type: 'slot', slot };
     const c = room.counter;
     consider('counter', c.stand.x, c.stand.z, {}, 1.0, c.register.x, c.register.z);
     for (const seat of room.seats) consider('seat', seat.stand.x, seat.stand.z, { seat }, 0.7);
@@ -858,6 +876,7 @@ export class InteriorSystem {
     const p = this.player.position, m = spot.machine;
     const yaw = Math.atan2(m.x - p.x, m.z - p.z);
     this._face(yaw);
+    this.cameraRig.turnBehind(this.player);
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     const front = { x: m.x - fx * 0.38, z: m.z - fz * 0.38 };
     const act = this.animation.act;
@@ -902,6 +921,7 @@ export class InteriorSystem {
     const top = new Vector3(st.x + fx * 1.15, 1.2, st.z + fz * 1.15);   // counter front edge
     const p = this.player.position;
     this._face(Math.atan2(top.x - p.x, top.z - p.z));
+    this.cameraRig.turnBehind(this.player);
     const item = productMesh(this.scene, id); item.scaling.setAll(0.9);
     item.position.copyFrom(shelf);
     const act = this.animation.act;

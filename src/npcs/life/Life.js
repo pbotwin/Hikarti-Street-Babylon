@@ -70,6 +70,17 @@ export class Life {
     };
   }
 
+  /** New game: a fresh day for this resident (off any bike, out of any seat or shop). */
+  reset(item, index) {
+    const L = item.life;
+    if (L.riding) { L.riding.v.npcRider = null; L.riding.v.driven = false; }
+    this._release(item);
+    const friends = L.friends;
+    this.init(item, index);
+    item.life.friends = friends;
+    this.hold(item, null);
+  }
+
   /** After all residents are initialised: friends are the nearest homes. */
   link(items) {
     for (const a of items) {
@@ -160,7 +171,13 @@ export class Life {
   // ------------------------------------------------------------ deciding
   _decide(item, ctx) {
     const L = item.life, n = L.needs, tr = L.traits, p = item.position;
+    // A quest marker points at them (a favor to give, follow up or receive):
+    // they stay within their range of home, where the marker leads her, and
+    // never go into shops or homes (Ren was found 37 m away on courier runs,
+    // Aoi 21 m away at a vending machine).
+    const pinned = !!item.markerStatus;
     const near = (type, max = L.range) => {
+      if (pinned) max = Math.min(max, L.range);
       const list = [];
       for (const pl of places) {
         if (pl.type !== type) continue;
@@ -201,10 +218,11 @@ export class Life {
       ]);
     }
     // Chat with a friend who is around.
-    const friend = L.friends.find((f) => f.life && !f.life.hidden && f.life.state !== 'chat' && !f.dodge && Math.hypot(f.position.x - p.x, f.position.z - p.z) < 30);
+    const friend = L.friends.find((f) => f.life && !f.life.hidden && f.life.state !== 'chat' && !f.dodge && Math.hypot(f.position.x - p.x, f.position.z - p.z) < 30
+      && !(pinned && this._outOfRange(item, f.position)));
     if (friend && L.chatCool <= 0) add('visit', n.social * tr.social * 1.3, () => [{ meet: friend, say: '👋' }]);
     // Shopping.
-    const shop = near('shop', L.range + 20).filter((s) => s.pl.inside);
+    const shop = pinned ? [] : near('shop', L.range + 20).filter((s) => s.pl.inside);
     if (shop.length) {
       const s = shop[Math.floor(Math.random() * Math.min(3, shop.length))];
       add('shop', n.errand * 1.1 * dist(s.d) * fresh('shop', 150), () => [
@@ -227,7 +245,7 @@ export class Life {
       { go: shrine.pl, say: '⛩️' }, { act: 'pray', secs: 11.5 }, { done: 'shrine', need: ['fun'], gain: 0.6 },
     ]);
     // Admire the blossoms, maybe take a photo.
-    const view = this.views.filter((v) => Math.hypot(v.x - L.home.x, v.z - L.home.z) < L.range + 20).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[Math.floor(Math.random() * 3)];
+    const view = this.views.filter((v) => Math.hypot(v.x - L.home.x, v.z - L.home.z) < L.range + (pinned ? 0 : 20)).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[Math.floor(Math.random() * 3)];
     if (view) add('view', n.fun * tr.curious * 0.9 * fresh('view', 120), () => [
       { goto: this._around(view.x, view.z, 2.2), face: view, say: '🌸' },
       { act: item.spec.camera || L.job === 'photo' ? 'photo' : 'look', secs: rnd(8, 16) },
@@ -240,7 +258,7 @@ export class Life {
       { done: 'stroll', need: ['fun'], gain: 0.3 },
     ]);
     // Explore a part of town they don't know yet (curious people more often).
-    if (this.minds && !item.spec.mission) {
+    if (this.minds && !item.spec.mission && !pinned) {
       const unk = this.minds.unexplored(item, L.range + 40);
       if (unk) add('explore', (0.15 + n.fun * 0.6) * tr.curious * fresh('explore', 200), () => [
         { goto: this._around(unk.x, unk.z, 3), say: '🧭' },
@@ -252,7 +270,7 @@ export class Life {
     const work = this._workPlan(item, near);
     if (work) add('work', n.work * (item.spec.mission ? 1.6 : 0.9), () => work);
     // Go home for a while (not mission residents: players come looking for them).
-    if (!item.spec.mission) {
+    if (!item.spec.mission && !pinned) {
       const door = this._homeDoor(item);
       if (door) add('home', n.home * 0.9 * fresh('home', 300), () => [
         { go: door, say: '🏠' }, { enter: door, secs: rnd(30, 70) }, { done: 'home', need: ['home', 'energy', 'hunger'], gain: 0.9 },
@@ -320,6 +338,12 @@ export class Life {
     return best;
   }
 
+  /** Whether `pos` is further from this resident's home than their range (+ a little slack). */
+  _outOfRange(item, pos) {
+    const h = item.life.home;
+    return Math.hypot(pos.x - h.x, pos.z - h.z) > item.life.range + 3;
+  }
+
   /** A walkable point within r of (x, z). */
   _around(x, z, r) {
     for (let i = 0; i < 12; i++) {
@@ -338,8 +362,9 @@ export class Life {
     if (!s) { L.state = 'think'; L.wait = rnd(0.5, 2.5); L.act = null; return; }
     if (s.say) this.say(item, s.say, 2.6);
     if ('hold' in s && !s.carry) this.hold(item, s.hold);
-    // Long trip and a free bike close by: ride it there.
-    if ((s.go || s.goto) && !s.byBike && !L.seat) {
+    // Long trip and a free bike close by: ride it there (not with a quest
+    // marker over their head: the ride ends wherever there is room to park).
+    if ((s.go || s.goto) && !s.byBike && !L.seat && !item.markerStatus) {
       const tx0 = s.go ? s.go.x : s.goto.x, tz0 = s.go ? s.go.z : s.goto.z;
       const far = Math.hypot(tx0 - item.position.x, tz0 - item.position.z);
       // Couriers always take a bike; others for longer trips.
@@ -428,13 +453,15 @@ export class Life {
     const L = item.life, p = item.position, path = L.path;
     if (L.waveT > 0) return; // stopped to wave at the heroine
     // Watchdog: no real progress for 8 s (blocked in some way nothing else
-    // caught) → drop this trip and think again.
-    L.prog = L.prog || { x: p.x, z: p.z, t: 0 };
+    // caught) → drop this trip and think again. Waiting at a kerb counts
+    // too, after 20 s: the kerb state lasts until the crossing is done, so
+    // exempting it let a resident stand in the road in 'walk' for minutes.
+    L.prog ||= { x: p.x, z: p.z, t: 0 };
     L.prog.t += dt;
-    if (L.prog.t > 8) {
+    if (L.prog.t > (L.curb ? 20 : 8)) {
       const moved = Math.hypot(p.x - L.prog.x, p.z - L.prog.z);
-      L.prog = { x: p.x, z: p.z, t: 0 };
-      if (moved < 0.6 && !L.curb) { this._release(item); L.plan = []; L.meet = null; L.state = 'think'; L.wait = rnd(1, 3); L.act = null; return; }
+      L.prog.x = p.x; L.prog.z = p.z; L.prog.t = 0;
+      if (moved < 0.6) { this._release(item); L.plan = []; L.meet = null; L.curb = null; L.state = 'think'; L.wait = rnd(1, 3); L.act = null; return; }
     }
     // Meeting a friend: keep heading for where they are now.
     if (L.meet) {
@@ -447,7 +474,7 @@ export class Life {
         if (f.life.chatCool > 0 || f.life.state === 'chat' || f.life.state === 'inside') { L.meet = null; this._arrive(item); return; }
         this._startChat(item, f); return;
       }
-      if (f.life.hidden || d > 40) { L.meet = null; L.plan = []; L.state = 'think'; L.wait = 1; return; }
+      if (f.life.hidden || d > 40 || (item.markerStatus && this._outOfRange(item, f.position))) { L.meet = null; L.plan = []; L.state = 'think'; L.wait = 1; return; }
     }
     let wp = path[L.pi];
     if (!wp) { this._arrive(item); return; }
@@ -543,7 +570,8 @@ export class Life {
   _freeBike(item, range = 25) {
     let best = null, bd = range;
     for (const v of this.vehicles || []) {
-      if (!v.isBike || !v.rig || v.npcRider || v.driven || v.speed > 0.2) continue;
+      // Not the showroom's (for sale, or hers once bought).
+      if (!v.isBike || !v.rig || v.showroom || v.npcRider || v.driven || v.speed > 0.2) continue;
       const d = Math.hypot(v.x - item.position.x, v.z - item.position.z);
       if (d < bd) { bd = d; best = v; }
     }
@@ -608,8 +636,8 @@ export class Life {
   _dismount(item) {
     const L = item.life, v = L.riding.v;
     v.autoDrive(1 / 60, v.x, v.z, v.yaw, 0);
+    // Its home stays where the town parks it: a new game puts it back there.
     v.npcRider = null; v.driven = false; v.parked = 1;
-    v.home = { x: v.x, z: v.z, yaw: v.yaw };
     v.vF = 0; v.r = 0;
     // Step off to the bike's left.
     const c = Math.cos(v.yaw), s = Math.sin(v.yaw);

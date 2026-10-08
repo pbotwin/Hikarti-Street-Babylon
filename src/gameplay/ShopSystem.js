@@ -226,8 +226,8 @@ export class ShopSystem {
         if (e.code === 'Escape') { e.preventDefault(); this.close(); }
         return;
       }
+      // F is the shop's even beside a car or bike: E gets her in (MobileInput).
       if (e.code !== 'KeyF' || e.repeat || !this._label) return;
-      if (this.vehicles.candidate) return;   // F gets her into the car first
       e.stopImmediatePropagation();
       e.preventDefault();
       this._interact();

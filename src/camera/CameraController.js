@@ -11,6 +11,19 @@ const PIVOT_HEIGHT = 1.42;
 const COLLISION_MARGIN = 0.28;
 const ROOF_MARGIN = 0.3;   // camera clearance around the car she is in
 const DEG = Math.PI / 180;
+// Placed somewhere new (spawn, a shop door, a load), the camera starts
+// behind her if it has this much room there; else it turns to the nearest
+// direction that has (leaving a shop it sat 0.6 m from her, jammed in the
+// door's alcove). Offsets from behind her, nearest first.
+const SNAP_CLEAR = 1.5;
+const SNAP_TRY = [0, 0.5, -0.5, 1, -1, 1.5, -1.5, 2.1, -2.1, Math.PI];
+// Standing with a wall right behind her (the camera pressed to its 0.6 m
+// minimum), it swings round to open space while she isn't steering it.
+const JAMMED = 0.9;
+// Ray offsets (right, up) round the centre ray: together they approximate a
+// sphere swept from the pivot.
+const SWEEP = [[0.18, 0], [-0.18, 0], [0, 0.18], [0, -0.108]];
+const _o = { x: 0, y: 0, z: 0 };
 
 /**
  * Third-person orbit camera (GTA / Genshin style).
@@ -48,14 +61,35 @@ export class CameraController {
     // inside its body (see update).
     this.avoid = null;
     this.roofLift = 0;
+    this._unjamT = 0; this._unjamYaw = 0;
   }
 
   snapBehind(player) {
-    this.targetYaw = this.yaw = player.yaw;
-    this.targetPitch = this.pitch = 0.22;
     this.pivot.set(player.position.x, player.visualY + PIVOT_HEIGHT, player.position.z);
+    this.targetYaw = this.yaw = this._clearYaw(player.yaw);
+    this.targetPitch = this.pitch = 0.22;
     this.distance = DIST;
     this._initialized = true;
+  }
+
+  /** Turn (smoothly) to look over her shoulder, where there is room: she turned to do something. */
+  turnBehind(player) {
+    this.targetYaw = this._clearYaw(player.yaw);
+    this.targetPitch = 0.22;
+  }
+
+  /** The view direction nearest `yaw` with room for the camera behind the pivot (else the roomiest). */
+  _clearYaw(yaw) {
+    const cp = Math.cos(0.22), sp = Math.sin(0.22);
+    let best = yaw, room = -1;
+    for (const off of SNAP_TRY) {
+      const a = yaw + off;
+      this._dir.set(-Math.sin(a) * cp, sp, -Math.cos(a) * cp);
+      const free = this._sweep(a, SNAP_CLEAR + COLLISION_MARGIN) - COLLISION_MARGIN;
+      if (free >= SNAP_CLEAR) return a;
+      if (free > room) { room = free; best = a; }
+    }
+    return best;
   }
 
   update(dt, player, controlsActive) {
@@ -84,6 +118,12 @@ export class CameraController {
       }
       this.targetPitch = damp(this.targetPitch, 0.2, 0.4 * (speed / 5), dt);
     }
+
+    if (idleLook && speed < 0.5 && !this.avoid && this.distance < JAMMED) {
+      // Re-aimed twice a second: the rays are only cast while jammed.
+      if ((this._unjamT -= dt) <= 0) { this._unjamT = 0.5; this._unjamYaw = this._clearYaw(this.yaw); }
+      this.targetYaw += wrap(this._unjamYaw - this.targetYaw) * (1 - Math.exp(-2 * dt));
+    } else this._unjamT = 0;
 
     // Light smoothing on rotation.
     this.yaw += wrap(this.targetYaw - this.yaw) * (1 - Math.exp(-22 * dt));
@@ -116,18 +156,8 @@ export class CameraController {
     const base = DIST * (1 - near * 0.2) * this.zoom;
     const want = base * (1 - Math.max(0, this.pitch - 0.5) * 0.25) * (1 - Math.max(0, -this.pitch) * 0.5);
 
-    // ---- Collision: centre ray + 4 offset rays approximate a sphere sweep ----
-    let hit = this._cast(this.pivot, this._dir, want + COLLISION_MARGIN);
-    const off = 0.18;
-    for (const [ox, oy] of [[off, 0], [-off, 0], [0, off], [0, -off * 0.6]]) {
-      const right = { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) };
-      const o = {
-        x: this.pivot.x + right.x * ox,
-        y: this.pivot.y + oy,
-        z: this.pivot.z + right.z * ox,
-      };
-      hit = Math.min(hit, this._cast(o, this._dir, want + COLLISION_MARGIN));
-    }
+    // ---- Collision ----
+    const hit = this._sweep(this.yaw, want + COLLISION_MARGIN);
     const allowed = Math.max(0.6, hit - COLLISION_MARGIN);
     // Snap in instantly (never show the inside of a wall), ease back out.
     this.distance = allowed < this.distance ? allowed : damp(this.distance, allowed, 3.5, dt);
@@ -163,6 +193,17 @@ export class CameraController {
     const roof = v.y + v.dims.h + ROOF_MARGIN;
     const inside = Math.abs(lx) < v.dims.w / 2 + ROOF_MARGIN && Math.abs(lz) < v.dims.len / 2 + ROOF_MARGIN;
     return inside && p.y < roof ? roof - p.y : 0;
+  }
+
+  /** Free distance from the pivot along `_dir` (the view at `yaw`), up to `max`: the centre ray and the SWEEP rays. */
+  _sweep(yaw, max) {
+    let hit = this._cast(this.pivot, this._dir, max);
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    for (const [ox, oy] of SWEEP) {
+      _o.x = this.pivot.x + rx * ox; _o.y = this.pivot.y + oy; _o.z = this.pivot.z + rz * ox;
+      hit = Math.min(hit, this._cast(_o, this._dir, max));
+    }
+    return hit;
   }
 
   _cast(o, d, max) {

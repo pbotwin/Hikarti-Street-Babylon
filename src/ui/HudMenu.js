@@ -4,7 +4,7 @@ import { FPS_MODES } from '../core/AdaptivePerformance.js';
 import { offerAndroidApp, ANDROID_APP_PAGE } from '../core/platform.js';
 
 /**
- * Right-hand HUD furniture from the key art: local time + city (top right),
+ * Right-hand HUD furniture from the key art: the town's time + name (top right),
  * a vertical menu (Settings / Bag / Quests / Map) under the minimap, and the
  * small glass sheets those buttons open.
  */
@@ -33,7 +33,7 @@ export class HudMenu {
     Object.assign(this, { state, collectibles, audio, minimap, missions, input, graphics, adaptive, saves, shops });
     const hud = root.querySelector('.hud');
     hud.insertAdjacentHTML('beforeend', `
-      <div class="clock"><span class="sun">${ICONS.sun}</span><div><b class="time">--:--</b><span class="city"></span></div></div>
+      <div class="clock"><span class="sun">${ICONS.sun}</span><div><b class="time">--:--</b><span class="city">Hikari</span></div></div>
       <nav class="side-menu">
         <button data-panel="settings" class="round" aria-label="Settings">${ICONS.gear}</button>
         <button data-panel="bag">${ICONS.bag}<span>Bag</span></button>
@@ -42,7 +42,6 @@ export class HudMenu {
       </nav>`);
     root.insertAdjacentHTML('beforeend', '<div class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><div class="sheet-card"><button class="sheet-x" aria-label="Close">×</button><h2 id="sheet-title"></h2><div class="sheet-body"></div></div></div>');
     this.timeEl = hud.querySelector('.clock .time');
-    this.cityEl = hud.querySelector('.clock .city');
     this.sheet = root.querySelector('.sheet');
     this.sheetTitle = this.sheet.querySelector('h2');
     this.sheetBody = this.sheet.querySelector('.sheet-body');
@@ -50,10 +49,6 @@ export class HudMenu {
     minimap.onClose = () => this.close();
     minimap.onOpen = () => this.toggle('map');
 
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-      this.cityEl.textContent = (tz.split('/').pop() || 'Hikari').replace(/_/g, ' ');
-    } catch { this.cityEl.textContent = 'Hikari'; }
     this._tick();
     setInterval(() => this._tick(), 15000);
 
@@ -77,10 +72,16 @@ export class HudMenu {
     });
   }
 
-  /** In-world clock: the district is always at golden hour, 17:20 onward (1 min per 15 s). */
+  /**
+   * In-world clock: the district is always at golden hour. From 17:20 it
+   * runs ever slower toward sunset (a minute per ~35 s at first, 18:04 after
+   * 40 minutes, never 18:30): it never jumps back (it used to wrap 17:59 →
+   * 17:20) nor reads night under an evening sun.
+   */
   _tick() {
     this._t0 ??= performance.now();
-    const m = 17 * 60 + 20 + Math.floor((performance.now() - this._t0) / 15000) % 40;
+    const s = (performance.now() - this._t0) / 1000;
+    const m = 17 * 60 + 20 + Math.floor(70 * (1 - Math.exp(-s / 2400)));
     this.timeEl.textContent = `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
   }
 

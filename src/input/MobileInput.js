@@ -68,9 +68,12 @@ export class MobileInput {
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
         <span><kbd>Shift</kbd> run</span>
         <span><kbd>Space</kbd> jump · climb</span>
-        <span><kbd>M</kbd> map</span>
-        <span><kbd>F</kbd> talk</span>
-        <span><kbd>Q</kbd> quests</span>
+        <span><kbd>E</kbd> drive · ride</span>
+        <span class="city-key"><kbd>F</kbd> talk · shop</span>
+        <span class="mall-key"><kbd>F</kbd> take · talk</span>
+        <span class="city-key"><kbd>M</kbd> map</span>
+        <span class="city-key"><kbd>B</kbd> bag</span>
+        <span class="city-key"><kbd>Q</kbd> quests</span>
         <span><kbd>Esc</kbd> free cursor</span>
       </div>
       <div class="key-legend drive-legend only-mouse">

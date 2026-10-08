@@ -221,6 +221,8 @@ export class SideMissionSystem {
     let nearest = null;
     let distance = Infinity;
     for (const npc of this.npcs.items) {
+      // Not someone out of sight (inside a shop or home, or not shown).
+      if (npc.life?.hidden || npc.shown === false) continue;
       const position = npc.position || npc.root.position;
       const d = horizontalDistance(p, position);
       if (d <= TALK_RADIUS && d < distance && Math.abs(p.y - (position.y || 0)) < 1.6) {

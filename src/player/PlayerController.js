@@ -20,8 +20,9 @@ const WINDUP = 0.08;          // brief crouch before liftoff (shorter when runni
 const LEDGE_ASSIST = 0.6;     // airborne: pop onto ledges this far above the feet
 const COYOTE = 0.12;
 const JUMP_BUFFER = 0.14;
-const RADIUS = 0.28;
-const HEIGHT = 1.55;
+// Her collision body (also used by NPCSystem to keep her out of residents).
+export const RADIUS = 0.28;
+export const HEIGHT = 1.55;
 // Climbing onto cars and vans: jump next to one (or touch its side in the
 // air while pushing toward it) to grab the roof edge and mantle up.
 const CLIMB_REACH = 0.5;      // how far ahead of the body a ledge can be grabbed from the ground

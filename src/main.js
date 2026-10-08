@@ -107,6 +107,7 @@ async function boot() {
   const interiors = new InteriorSystem({ scene, collision, state, player, animation, character, cameraRig, gfx, shops, ui, input, audio, minimap, vehicles, carLights, npcs, world });
   shops.interiors = interiors;
   const saves = new SaveSystem({ state, player, cameraRig, collectibles, portal, missions, vehicles, world, collision, audio, ui, shops });
+  ui.saves = saves;
   const hudMenu = new HudMenu(document.getElementById('ui'), { state, collectibles, audio, minimap, missions, input, graphics: settings, adaptive, saves, shops });
   // Shopping mode: trips to Hikari Mall from the title screen.
   const mall = new MallMode({ scene, engine, camera, graphics, collision, state, ui, input, player, character, animation, cameraRig, vehicles, shops, audio, world, npcs, effects, saves });
@@ -115,7 +116,13 @@ async function boot() {
   // What residents can tell her about: fragments, open missions, the portal.
   npcs.game = { collectibles, missions, portal };
   npcs.voices.isMuted = () => audio.muted;
-  npcs.voices.onStatus = (t) => console.info('[voices]', t);
+  // Logged when the state changes (downloading, ready, unavailable): the
+  // download reports progress per chunk, ~7,000 lines of percentages.
+  let voiceState = '';
+  npcs.voices.onStatus = (t) => {
+    const s = t.replace(/\s*\d+%$/, '');
+    if (s !== voiceState) console.info('[voices]', (voiceState = s));
+  };
   const updateQuestMarkers = () => npcs.setQuestMarkers(missions.getNPCStatuses());
   state.on('mission:changed', updateQuestMarkers);
   updateQuestMarkers();

@@ -9,6 +9,7 @@ import { lineFor } from './life/Talk.js';
 import { SIDE_MISSIONS } from '../gameplay/SideMissionData.js';
 import { Voices } from '../audio/voice/Voices.js';
 import { applyAct, holdProp, makeBubble, showBubble, updateBubble, warmActs, disposeActs } from './life/Acts.js';
+import { RADIUS as PLAYER_RADIUS, HEIGHT as PLAYER_HEIGHT } from '../player/PlayerController.js';
 
 // Residents are anime characters like the heroine: each spec gets a VRoid
 // base body (by gender and outfit style), its own hair / clothing colours
@@ -31,6 +32,8 @@ function lookFor(spec, index) {
 
 const wrap = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// A resident's body, for her to bump into (shoulders, not the walk map's 0.22 m feet).
+const BODY = 0.25;
 
 /** Bring a node's world matrix (and its parents') up to date. */
 function sync(n) {
@@ -266,7 +269,8 @@ export class NPCSystem {
     if (!p) return null;
     let best = null, distance = radius;
     for (const item of this.items) {
-      if (Math.abs(p.y - item.position.y) > 2) continue;
+      // Residents out of sight (inside, or not shown) can't be met.
+      if (!item.shown || item.life.hidden || Math.abs(p.y - item.position.y) > 2) continue;
       const d = Math.hypot(p.x - item.position.x, p.z - item.position.z);
       if (d < distance) { best = item; distance = d; }
     }
@@ -289,6 +293,8 @@ export class NPCSystem {
       item.position.set(spec.x, this.collision.groundHeight(spec.x, spec.z, 0.25, 0, 0.4), spec.z);
       item.root.rotation.y = item.facing = spec.yaw || 0;
       item.routeIndex = 1; item.wait = i * 0.23; item.speed = 0;
+      item.dodge = null; item.startled = 0;
+      this.life.reset(item, i);
     }
   }
 
@@ -300,9 +306,12 @@ export class NPCSystem {
   }
 
   /**
-   * Residents leap out of the way of an approaching vehicle: if a car or bike
+   * Residents get out of the way of an approaching vehicle: if a car or bike
    * moving faster than a jog will pass through them within ~1.4 s, they jump
-   * sideways (away from its path) in a short arc, then stand startled.
+   * sideways (away from its path) in a short arc, then stand startled. A
+   * slow one (parking, creeping through a crowd) gets a quick step aside
+   * when it is about to touch them: cars have no colliders for residents,
+   * and below a jog they used to drive straight through people.
    */
   _dodge(item, dt, vehicles) {
     const pos = item.position;
@@ -315,7 +324,7 @@ export class NPCSystem {
       // Never leap into walls or props.
       if (this.collision.resolveCircle(probe, 0.26, d.y0 + 0.3, 1.4, 0.3)) { d.dx = probe.x - d.x0; d.dz = probe.z - d.z0; }
       pos.x = probe.x; pos.z = probe.z;
-      d.hop = Math.sin(u * Math.PI) * 0.55;
+      d.hop = Math.sin(u * Math.PI) * d.lift;
       pos.y = d.y0 + d.hop;           // position is the root's own position
       if (u >= 1) {
         pos.y = this.collision.groundHeight(pos.x, pos.z, 0.25, d.y0, 0.35);
@@ -324,25 +333,44 @@ export class NPCSystem {
       }
       return true;
     }
-    if (!vehicles) return false;
+    // Riders steer their own bike (and stop for people, Life._ride).
+    if (!vehicles || item.life.riding) return false;
     for (const v of vehicles) {
       const sp = Math.hypot(v.vF || 0, v.vL || 0);
-      if (sp < 3) continue;
+      if (sp < 0.4) continue;
+      const fast = sp >= 3;
       const s = Math.sin(v.yaw), c = Math.cos(v.yaw), dir = (v.vF || 0) >= 0 ? 1 : -1;
       const rx = pos.x - v.x, rz = pos.z - v.z;
       const fwd = (rx * s + rz * c) * dir;            // ahead of the vehicle along its travel
       const lat = rx * c - rz * s;                    // sideways offset
       const half = (v.collider?.hx ?? (v.dims?.w || 1.8) / 2) + 0.7;
-      if (fwd > 0 && fwd < Math.min(14, sp * 1.4) && Math.abs(lat) < half) {
+      // Slow: from its bumper, about 1.5 s out.
+      const ahead = fast ? Math.min(14, sp * 1.4) : (v.dims?.len || 4) / 2 + 0.6 + sp * 1.5;
+      if (fwd > 0 && fwd < ahead && Math.abs(lat) < half) {
         const side = Math.abs(lat) > 0.15 ? Math.sign(lat) : (Math.random() < 0.5 ? -1 : 1);
-        const dist = half - Math.abs(lat) + 0.9;
-        item.dodge = { t: 0, dur: 0.5, x0: pos.x, z0: pos.z, y0: pos.y, dx: c * side * dist, dz: -s * side * dist, hop: 0 };
-        item.facing = Math.atan2(v.x - pos.x, v.z - pos.z);   // look at the car while jumping clear
-        this.state?.emit('npc:dodge', { id: item.id });
+        const dist = half - Math.abs(lat) + (fast ? 0.9 : 0.4);
+        item.dodge = { t: 0, dur: fast ? 0.5 : 0.7, lift: fast ? 0.55 : 0.12, x0: pos.x, z0: pos.z, y0: pos.y, dx: c * side * dist, dz: -s * side * dist, hop: 0 };
+        item.facing = Math.atan2(v.x - pos.x, v.z - pos.z);   // look at the car while getting clear
+        // Only a fast one is reckless driving (residents remember it).
+        if (fast) this.state?.emit('npc:dodge', { id: item.id });
         return true;
       }
     }
     return false;
+  }
+
+  /**
+   * She doesn't walk through people: overlapping a resident pushes her out
+   * round them (she slides past), then out of any wall that put her in.
+   */
+  _bump(item, player) {
+    const L = item.life, p = player.position;
+    if (!p || player.ride || player.climb || L.riding || L.state === 'door' || Math.abs(p.y - item.position.y) > 1.2) return;
+    const dx = p.x - item.position.x, dz = p.z - item.position.z, d = Math.hypot(dx, dz);
+    if (d < 1e-4) return;
+    const k = (BODY + PLAYER_RADIUS) / d;
+    p.x = item.position.x + dx * k; p.z = item.position.z + dz * k;
+    this.collision.resolveCircle(p, PLAYER_RADIUS, p.y, PLAYER_HEIGHT);
   }
 
   update(dt, player, vehicles) {
@@ -383,6 +411,7 @@ export class NPCSystem {
       const range = this.viewDistance * this.distanceScale;
       item.inView = distance < (item.inView ? range + 3 : range);
       this._show(item, item.inView && !item.life.hidden);
+      if (item.shown && distance < BODY + PLAYER_RADIUS) this._bump(item, player);
       // Animation level of detail: residents beyond 15 m are posed every
       // 2nd frame, beyond 40 m every 4th (staggered by index).
       const every = distance < 15 ? 1 : distance < 40 ? 2 : 4;

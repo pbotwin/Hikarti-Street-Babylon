@@ -547,6 +547,9 @@ kbd {
 .drive-legend { display: none; }
 .controls.driving .key-legend:not(.drive-legend) { display: none; }
 .controls.driving .drive-legend { display: flex; }
+/* The legend's keys for where she is: the mall has no map, bag or quests. */
+.key-legend .mall-key, [data-mode="mall"] .key-legend .city-key { display: none; }
+[data-mode="mall"] .key-legend .mall-key { display: flex; }
 .controls.driving .run-btn { display: none; }
 @media (orientation: landscape) and (max-height: 540px) {
   .act-btn { right: calc(116px + var(--sar)); bottom: calc(112px + var(--sab)); }

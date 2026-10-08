@@ -135,12 +135,19 @@ export class UI {
     this.fullscreen = new Fullscreen(root, (title, sub) => this.toast(title, sub));
     this.buildEl = root.querySelector('.build');
     state.on('phase', ({ phase }) => this._onPhase(phase));
-    // A shopping trip is not the story's start: no fragments greeting.
-    state.on('ui:mall', () => { this._trip = true; });
     state.on('fragment:collected', ({ count, total }) => this._onFragment(count, total));
     state.on('portal:activated', () => setTimeout(() => this.toast('Portal Activated', 'A gate has opened on the main street'), 900));
-    state.on('game:reset', () => this._resetCounter());
-    this.startTime = 0;
+    state.on('game:reset', () => {
+      this._resetCounter();
+      // Restarted in play or from the completion screen (a new game from the title starts below).
+      if (state.phase !== Phase.TITLE) this._greet();
+    });
+    // Play starting from the title: start, Continue, New game (each time, not
+    // once a session). A shopping trip (ui:mall) is not the story's start.
+    state.on('ui:start', () => this._greet());
+    // The game she quits is saved: coming back to it is a welcome back.
+    state.on('ui:quit', () => { this._resumed = true; });
+    this.saves = null;   // SaveSystem (main.js): the completion time is the save's play time
   }
 
   /** Title screen: Continue + New game for a save ({ line, saved }), else Start. */
@@ -180,15 +187,9 @@ export class UI {
     this.buildEl.classList.toggle('hidden', phase === Phase.PLAYING);
     this.titleScreen.classList.toggle('hidden', phase !== Phase.TITLE);
     this.hud.classList.toggle('hidden', phase !== Phase.PLAYING);
-    if (phase === Phase.TITLE) this._trip = false;
-    if (phase === Phase.PLAYING && !this.startTime && !this._trip) {
-      this.startTime = performance.now();
-      setTimeout(() => (this._resumed
-        ? this.toast('Welcome back', 'Your progress has been loaded')
-        : this.toast('Find the Energy Fragments', 'Follow the beams of light')), 600);
-    }
     if (phase === Phase.COMPLETE) {
-      const s = Math.round((performance.now() - this.startTime) / 1000);
+      // Time played in this playthrough (all sessions; not the title screen or a pause).
+      const s = Math.round(this.saves?.current?.stats.playTime || 0);
       this.completeScreen.querySelector('.time').textContent =
         `5 / 5 fragments · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
       this.completeScreen.classList.remove('hidden');
@@ -214,8 +215,14 @@ export class UI {
     this.countEl.textContent = '0';
     this.counter.classList.remove('done', 'bump');
     [...this.pips.children].forEach((p) => p.classList.remove('on'));
-    this.startTime = performance.now();
     this._resumed = false;
+  }
+
+  /** Play (re)starts: what to do, or a welcome back to a loaded game. */
+  _greet() {
+    setTimeout(() => (this._resumed
+      ? this.toast('Welcome back', 'Your progress has been loaded')
+      : this.toast('Find the Energy Fragments', 'Follow the beams of light')), 600);
   }
 
   toast(title, sub = '') {
