@@ -22,6 +22,9 @@ import { showBubble } from '../npcs/life/Acts.js';
  * facing, act and hand targets) onto the shopper for MallShoppers to animate.
  */
 const WALK = 1.05, PUSH = 0.85, TAKE = 2.3, HOLD_UP = 3.2, UNLOAD = 0.9, PAY = 3.4;
+// Moving the cart in beside them / out again (s), and how far along beside
+// them it stands (its centre from theirs, m): its basket within arm's reach.
+const PARK = 0.7, BESIDE = 0.55;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -110,7 +113,8 @@ export class ShopperMind {
       const { x, z, yaw = 0 } = st.slot;
       st.x = x - Math.sin(yaw) * CART_AHEAD; st.z = z - Math.cos(yaw) * CART_AHEAD; st.yaw = yaw;
     } else if (st.type === 'shelf') {
-      const f = st.shelf.f, front = (st.shelf.depth || 0.5) / 2 + 0.55;
+      // Close enough to reach the shelf's front (residents' arms reach ~0.45 m).
+      const f = st.shelf.f, front = (st.shelf.depth || 0.5) / 2 + 0.42;
       st.u = (Math.random() - 0.5) * Math.max(0, (st.shelf.w || 1) - 0.5);
       st.x = st.shelf.x + f.x * front + f.z * st.u;
       st.z = st.shelf.z + f.z * front - f.x * st.u;
@@ -177,6 +181,7 @@ export class ShopperMind {
   // ------------------------------------------------------------ per frame
   update(s, dt) {
     s.moving = false;
+    s.steering = false;
     s.act = null;
     s.actK = 0;
     const st = s.step;
@@ -327,19 +332,18 @@ export class ShopperMind {
   /** The default pose when the step set none: hands on the cart, the basket on the left arm, a garment over the right. */
   _pose(s) {
     const gear = this.env.gear, h = s.hands;
+    // The hand's place for a garment over the arm / a bag by the hip (what
+    // it holds follows the posed hand: MallShoppers).
     if (s.carryGood) {
       const p = s.position, f = s.facing;
       s.carryAt.set(p.x + Math.cos(f) * 0.2 + Math.sin(f) * 0.22, p.y + s.look.height * 0.56, p.z - Math.sin(f) * 0.2 + Math.cos(f) * 0.22);
-      gear.moveGood(s.carryGood, s.carryAt.x, s.carryAt.y - 0.05, s.carryAt.z, f + Math.PI / 2);
     } else if (s.bag) {
-      // A bag in the right hand, by the hip.
       const p = s.position, f = s.facing;
       s.carryAt.set(p.x + Math.cos(f) * 0.24 + Math.sin(f) * 0.04, p.y + s.look.height * 0.44, p.z - Math.sin(f) * 0.24 + Math.cos(f) * 0.04);
-      gear.carryBag(s.bag, s.carryAt.x, s.carryAt.y, s.carryAt.z, f + Math.PI / 2);
     }
     if (s.act) return;
     h.lean = 0; h.pitch = 0; h.l = null; h.r = s.carryGood || s.bag ? s.carryAt : null;
-    if (s.kind === 'cart' && !s.parked) {
+    if (s.kind === 'cart' && (!s.parked || s.steering)) {
       h.l = gear.point(s.index, GRIPS.cart.l, s.handL);
       h.r = gear.point(s.index, GRIPS.cart.r, s.handR);
       h.lean = 0.12;
@@ -350,6 +354,7 @@ export class ShopperMind {
   /** Free whatever loose good is in their hands (a step given up, the trip over). */
   _drop(s) {
     if (s.good) { this.env.gear.drop(s.good); s.good = null; }
+    s.held = null;
     s.reaching = false;
   }
 
@@ -381,30 +386,38 @@ export class ShopperMind {
     const f = st.shelf.f;
     if (s.sub === 0) {
       if (s.kind === 'cart') {
-        // The cart along the shelf, the way it was going.
+        // The cart along the shelf, the way it was going, pulled in beside them
+        // (its basket within arm's reach), a little back from the shelf.
         const along = Math.atan2(f.z, -f.x), yaw = Math.cos(wrap(along - s.cart.yaw)) > 0 ? along : along + Math.PI;
         const q = s.park;
         q.x0 = s.cart.x; q.z0 = s.cart.z; q.yaw0 = s.cart.yaw;
-        q.x = s.position.x + Math.sin(yaw) * CART_AHEAD; q.z = s.position.z + Math.cos(yaw) * CART_AHEAD; q.yaw = yaw;
+        q.x = s.position.x + Math.sin(yaw) * BESIDE + f.x * 0.25; q.z = s.position.z + Math.cos(yaw) * BESIDE + f.z * 0.25; q.yaw = yaw;
         s.parked = true;
       }
       s.sub = 1; s.t = 0; s.k = 0; s.wait = rnd(1, 2.4);
     }
-    if (s.parked && s.t < 0.8 && s.sub === 1) {
-      const q = s.park, u = smooth(s.t / 0.7);
-      this._cartAt(s, q.x0 + (q.x - q.x0) * u, q.z0 + (q.z - q.z0) * u, q.yaw0 + wrap(q.yaw - q.yaw0) * u);
+    // Their hands on the handle while the cart moves (_pose).
+    s.steering = s.parked && s.t < PARK && (s.sub === 1 || s.sub === 3);
+    if (s.steering) {
+      const q = s.park, u = smooth(s.t / PARK), back = s.sub === 3;
+      const x0 = back ? q.x : q.x0, z0 = back ? q.z : q.z0, y0 = back ? q.yaw : q.yaw0;
+      const x1 = back ? s.position.x + Math.sin(q.yaw) * CART_AHEAD : q.x, z1 = back ? s.position.z + Math.cos(q.yaw) * CART_AHEAD : q.z;
+      this._cartAt(s, x0 + (x1 - x0) * u, z0 + (z1 - z0) * u, y0 + wrap(q.yaw - y0) * u);
+      if (back) s.facingTarget = q.yaw;
+      return;
     }
     if (s.sub === 1) {
-      s.act = 'browse'; s.actK = smooth(s.t / 0.4);
-      if (s.t > s.wait) { s.sub = 2; s.t = 0; }
+      s.act = 'browse'; s.actK = smooth((s.t - (s.parked ? PARK : 0)) / 0.4);
+      if (s.t > s.wait + (s.parked ? PARK : 0)) { s.sub = 2; s.t = 0; }
     } else if (s.sub === 2) {
       if (this._take(s, st, f)) {
         s.t = 0;
         if (++s.k >= st.n || !this.env.gear.room(s.index)) s.sub = 3;
       }
     } else {
+      // Back behind the handle (the cart rolled out ahead of them again, above), and on.
       s.facingTarget = s.kind === 'cart' ? s.cart.yaw : st.yaw;
-      if (s.t > 0.6) { s.parked = false; this._next(s); }
+      if (s.t >= PARK) { s.parked = false; this._next(s); }
     }
   }
 
@@ -434,11 +447,13 @@ export class ShopperMind {
     s.act = 'hands'; s.actK = 1;
     if (u < 0.4) restToward(s, T, smooth(u / 0.4));
     else if (u < 0.8) {
+      // In the hand from the shelf's front to above its place in the cart / basket.
       const v = smooth((u - 0.4) / 0.4);
+      s.held = s.good; s.heldShow = false;
       s.handR.set(T.x + (D.x - T.x) * v, T.y + (D.y - T.y) * v + Math.sin(v * Math.PI) * 0.12, T.z + (D.z - T.z) * v);
-      gear.moveGood(s.good, s.handR.x, s.handR.y - 0.06, s.handR.z, s.facing);
     } else {
-      if (s.good) { gear.land(s.good); s.good = null; }
+      // Let go: it drops into its place.
+      if (s.good) { gear.letGo(s.good); s.good = null; s.held = null; }
       restToward(s, D, 1 - smooth((u - 0.8) / 0.2));
     }
     if (u < 1) return false;
@@ -475,12 +490,13 @@ export class ShopperMind {
     hd.l = s.handL.set(cx - rx * 0.15, cy, cz - rz * 0.15);
     hd.r = s.handR.set(cx + rx * 0.15, cy, cz + rz * 0.15);
     hd.lean = 0; hd.pitch = 0.3 * v;
-    // Turned this way and that while looking at it (hangers hang from their hook; folded things and shoes sit in the hands).
-    if (u > 0.6) gear.moveGood(s.good, cx, cy + (s.good.shape === 'tee' ? 0.03 : -0.08), cz, f + Math.PI + v * Math.sin(u * 1.4) * 0.25);
+    // Held up between both hands (turned this way and that: MallShoppers) from when they reach it.
+    if (u > 0.6) { s.held = s.good; s.heldShow = true; s.heldTurn = v * Math.sin(u * 1.4) * 0.25; }
     if (st.keep && u > 1.2 + HOLD_UP * 0.7) {
-      if (s.kind === 'basket' && gear.aim(s.index, s.good, _p)) gear.land(s.good);
-      else s.carryGood = s.good;
+      // Kept: carried over the arm (to the till, or the queue).
+      s.carryGood = s.good;
       s.good = null;
+      s.held = null;
       s.reaching = false;
       this._next(s);
     } else if (u > 2.2 + HOLD_UP) {
@@ -563,27 +579,58 @@ export class ShopperMind {
       if (s.ri < s.route.count) { this._walk(s, dt); return; }
       s.facingTarget = _spot.yaw;
       this._carry(s, dt);
-      if (line.canUnload(s)) { s.sub = 1; s.t = 0; s.paid = 0; }
+      if (line.canUnload(s)) {
+        s.sub = 1; s.t = 0; s.paid = 0;
+        // With a cart: they leave it standing and step in between it and the belt.
+        s.k = s.kind === 'cart' && line.belt ? 0 : 1;
+        if (!s.k) {
+          const q = s.park, c = s.cart, B = line.belt.at, d = line.dir;
+          const bx = B[0] - c.x, bz = B[2] - c.z, a = bx * d.x + bz * d.z, nl = Math.hypot(bx - d.x * a, bz - d.z * a) || 1;
+          q.x0 = s.position.x; q.z0 = s.position.z;
+          q.x = c.x + (bx - d.x * a) / nl * 0.5; q.z = c.z + (bz - d.z * a) / nl * 0.5;
+          s.parked = true;
+        }
+      }
       return;
     }
     if (s.sub === 1) {
       // Unloading: product after product from the cart / basket onto the belt.
       s.facingTarget = line.dir.yaw;
+      if (s.k !== 1) {
+        // Into the gap beside the cart (k 0) / back behind its handle (k 2).
+        const q = s.park, back = s.k === 2, u = smooth(s.t / PARK);
+        const x0 = back ? q.x : q.x0, z0 = back ? q.z : q.z0, x1 = back ? q.x0 : q.x, z1 = back ? q.z0 : q.z;
+        s.position.x = x0 + (x1 - x0) * u; s.position.z = z0 + (z1 - z0) * u;
+        s.moving = s.t < PARK; s.moveSpeed = Math.hypot(x1 - x0, z1 - z0) / PARK;
+        this._carry(s, dt);
+        if (s.t < PARK) return;
+        if (back) { s.parked = false; line.toRegister(s); s.sub = 2; s.t = 0; this.routeTo(s, line.stop.x, line.stop.z); return; }
+        s.k = 1; s.t = 0;
+      }
       this._carry(s, dt);
       if (!s.good) {
         s.good = line.belt ? gear.unstow(s.index) : null;
-        if (!s.good) { line.toRegister(s); s.sub = 2; s.t = 0; this.routeTo(s, line.stop.x, line.stop.z); return; }
-        s.reachAt.set(s.good.unit.x, s.good.unit.y, s.good.unit.z);
+        if (!s.good) {
+          if (s.parked) { s.k = 2; s.t = 0; return; }
+          line.toRegister(s); s.sub = 2; s.t = 0; this.routeTo(s, line.stop.x, line.stop.z); return;
+        }
+        s.reachAt.set(s.good.unit.x, s.good.unit.y + s.good.entry.size.h, s.good.unit.z);
         s.t = 0;
       }
-      const u = s.t / UNLOAD, v = smooth(u), F = s.reachAt, B = line.belt.at;
-      s.handR.set(F.x + (B[0] - F.x) * v, F.y + (B[1] + 0.1 - F.y) * v + Math.sin(v * Math.PI) * 0.15, F.z + (B[2] - F.z) * v);
-      gear.moveGood(s.good, s.handR.x, s.handR.y - 0.06, s.handR.z, line.dir.yaw);
+      // The hand to it in the cart / basket, then it is in the hand, over and down onto the belt.
+      const u = s.t / UNLOAD, F = s.reachAt, B = line.belt.at, top = B[1] + s.good.entry.size.h * 0.5 + 0.03;
+      if (u < 0.3) restToward(s, F, smooth(u / 0.3));
+      else {
+        const v = smooth((u - 0.3) / 0.7);
+        s.held = s.good; s.heldShow = false;
+        s.handR.set(F.x + (B[0] - F.x) * v, F.y + (top - F.y) * v + Math.sin(v * Math.PI) * 0.15, F.z + (B[2] - F.z) * v);
+      }
+      if (s.parked) s.facingTarget = Math.atan2((u < 0.3 ? F.x : B[0]) - s.position.x, (u < 0.3 ? F.z : B[2]) - s.position.z);
       const hd = s.hands;
       s.act = 'hands'; s.actK = 0.4 + Math.sin(clamp(u, 0, 1) * Math.PI) * 0.6;
       hd.l = s.kind === 'basket' ? gear.point(s.index, GRIPS.basket, s.handL) : null;
       hd.r = s.handR; hd.lean = 0.2; hd.pitch = 0.4;
-      if (u >= 1) { line.onBelt(s.good); s.good = null; s.paid++; }
+      if (u >= 1) { line.onBelt(s.good); s.good = null; s.held = null; s.paid++; }
       return;
     }
     if (s.sub === 2) {

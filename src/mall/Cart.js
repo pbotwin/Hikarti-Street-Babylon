@@ -21,7 +21,9 @@ import { MathUtils } from '../player/math.js';
  * What it carries are entries { size: { w, d, h }, put(x, y, z, yaw) }:
  * stow() packs one into the basket (on the floor first, then on top, as in
  * a real cart) and the cart moves it along with itself; while `flying` is
- * set (on its way in, carried by a hand) the cart leaves it alone.
+ * set (on its way in, carried by a hand) the cart leaves it alone. Let go
+ * of above its place, a thing drops into it; taken out from under others,
+ * those drop onto what is left (nothing slides about by itself).
  *
  * Frame: +z forward, +x the pusher's left, origin on the floor between the
  * axles; yaw as the player's (forward = (sin yaw, cos yaw)).
@@ -44,7 +46,7 @@ const RIM = 0.0075, WIRE = 0.0028, TUBE = 0.012;
 const clamp = MathUtils.clamp;
 
 const _m = new Matrix(), _m2 = new Matrix(), _m3 = new Matrix(), _q = new Quaternion(), _v = new Vector3(), _one = Vector3.One();
-const _probe = { x: 0, z: 0 }, _push = { x: 0, z: 0 };
+const _probe = { x: 0, z: 0 }, _push = { x: 0, z: 0 }, _local = { x: 0, y: 0, z: 0 };
 // What collides when she pushes: three circles along the cart, and her behind its handle ([z, radius, from y, height]).
 const BODY = [[-0.28, 0.27, 0.04, 0.95], [0.05, 0.27, 0.04, 0.95], [0.32, 0.25, 0.04, 0.95], [-CART.behind, 0.26, 0, 1.5]];
 
@@ -259,10 +261,32 @@ export class Cart {
    * (turned square on if that is lower), front first. Returns false when full.
    */
   stow(e) {
-    const B = CART.basket, cols = this.cols, rows = this.rows, H = this.heights;
+    const best = this._spotFor(e.size), B = CART.basket, cols = this.cols, H = this.heights;
+    if (!best) return false;
+    for (let r = best.r0; r < best.r0 + best.nr; r++) for (let c = best.c0; c < best.c0 + best.nc; c++) H[r * cols + c] = best.base + e.size.h;
+    e.slot = {
+      x: B.x0 + (best.c0 + best.nc / 2) * 0.02, y: B.y + best.base, z: B.z0 + (best.r0 + best.nr / 2) * 0.02,
+      // Print facing the pusher, or turned a quarter; a little askew, as things land.
+      yaw: (best.turned ? Math.PI / 2 : Math.PI) + Math.sin(this.contents.length * 2.7) * 0.12,
+      c0: best.c0, r0: best.r0, nc: best.nc, nr: best.nr,
+    };
+    e.cur = { x: e.slot.x, y: e.slot.y, z: e.slot.z, yaw: e.slot.yaw };
+    e.vy = 0;
+    this.contents.push(e);
+    this.version++;
+    this.moved = true;
+    return true;
+  }
+
+  /** Is there room in the basket for something this size? */
+  fits(size) { return !!this._spotFor(size); }
+
+  /** The lowest spot a footprint fits (turned square on if that is lower), front first; null: full. */
+  _spotFor(size) {
+    const cols = this.cols, rows = this.rows, H = this.heights;
     let best = null;
     for (const turned of [false, true]) {
-      const w = turned ? e.size.d : e.size.w, d = turned ? e.size.w : e.size.d;
+      const w = turned ? size.d : size.w, d = turned ? size.w : size.d;
       const nc = Math.min(cols, Math.ceil(w / 0.02)), nr = Math.min(rows, Math.ceil(d / 0.02));
       for (let r0 = rows - nr; r0 >= 0; r0--) {
         for (let c0 = 0; c0 + nc <= cols; c0++) {
@@ -272,33 +296,44 @@ export class Cart {
         }
       }
     }
-    if (!best || best.base + e.size.h > 0.75) return false;
-    for (let r = best.r0; r < best.r0 + best.nr; r++) for (let c = best.c0; c < best.c0 + best.nc; c++) H[r * cols + c] = best.base + e.size.h;
-    e.slot = {
-      x: B.x0 + (best.c0 + best.nc / 2) * 0.02, y: B.y + best.base, z: B.z0 + (best.r0 + best.nr / 2) * 0.02,
-      // Print facing the pusher, or turned a quarter; a little askew, as things land.
-      yaw: (best.turned ? Math.PI / 2 : Math.PI) + Math.sin(this.contents.length * 2.7) * 0.12,
-    };
-    e.cur ||= { ...e.slot };
-    this.contents.push(e);
-    this.version++;
-    this.moved = true;
-    return true;
+    return best && best.base + size.h <= 0.75 ? best : null;
   }
 
   /**
-   * Take an entry out; the rest settle (repacked, sliding into their new
-   * places) unless `settle` is false (unloading everything, one by one).
+   * Take an entry out: what lay on it drops onto whatever is under it now
+   * (bottom up, each where it lies).
    */
-  unstow(e, settle = true) {
+  unstow(e) {
     const i = this.contents.indexOf(e);
     if (i < 0) return;
     this.contents.splice(i, 1);
     this.version++;
-    if (!settle) return;
-    const rest = this.contents.splice(0);
-    this.heights.fill(0);
-    for (const o of rest) this.stow(o);
+    const H = this.heights, cols = this.cols, B = CART.basket;
+    H.fill(0);
+    const rest = this.contents.slice().sort((a, b) => a.slot.y - b.slot.y);
+    for (const o of rest) {
+      const s = o.slot;
+      let base = 0;
+      for (let r = s.r0; r < s.r0 + s.nr; r++) for (let c = s.c0; c < s.c0 + s.nc; c++) base = Math.max(base, H[r * cols + c]);
+      for (let r = s.r0; r < s.r0 + s.nr; r++) for (let c = s.c0; c < s.c0 + s.nc; c++) H[r * cols + c] = base + o.size.h;
+      s.y = B.y + base;
+    }
+  }
+
+  /**
+   * A hand lets go of a stowed entry at world (x, y, z) turned yaw: it stays
+   * where the hand put it (its place in the basket is there now) and drops
+   * the last bit onto what is under it.
+   */
+  release(e, x, y, z, yaw) {
+    this.toLocal(x, y, z, _local);
+    const s = e.slot;
+    s.x = _local.x; s.z = _local.z; s.yaw = yaw - this.yaw;
+    const c = e.cur;
+    c.x = s.x; c.y = Math.max(y, s.y); c.z = s.z; c.yaw = s.yaw;
+    e.vy = 0;
+    e.flying = false;
+    this.moved = true;
   }
 
   /** Cart-space pose an entry will have once stowed (before it is), for aiming a hand at it. */
@@ -311,9 +346,11 @@ export class Cart {
     let settling = false;
     for (const e of this.contents) {
       const c = e.cur, s = e.slot;
-      if (Math.abs(c.x - s.x) + Math.abs(c.y - s.y) + Math.abs(c.z - s.z) + Math.abs(c.yaw - s.yaw) < 1e-4) continue;
-      const k = 1 - Math.exp(-10 * dt);
-      c.x = lerp(c.x, s.x, k); c.y = lerp(c.y, s.y, k); c.z = lerp(c.z, s.z, k); c.yaw = lerp(c.yaw, s.yaw, k);
+      if (e.flying || c.y <= s.y) continue;
+      // Falling into its place: gravity (as anything let go of).
+      e.vy += 9.8 * dt;
+      c.y = Math.max(s.y, c.y - e.vy * dt);
+      if (c.y === s.y) e.vy = 0;
       settling = true;
     }
     if (!this.moved && !gate && !settling && !this.dirty) return;

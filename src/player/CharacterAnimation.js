@@ -223,12 +223,17 @@ export class CharacterAnimation {
     //   holdR: right fingers close (holding something)
     //   sit:   sitting on a chair / stool
     //   eat:   right hand to the mouth
-    //   crouch: knees and back bend to reach a low shelf
+    //   crouch: knees and back bend to reach a low shelf (0..1 a squat;
+    //          on to 2 she bends over further, toward the floor)
     //   bag:   right hand holds a shopping bag out at her side (IK)
     //   hands: { wl, wr, l: [x, y, z], r: [x, y, z] } both hands to world
     //          points, fingers closed (a cart handle, clothes on hangers);
     //          takes over from the basket / reach / bag when set
-    this.act = { carry: 0, reach: null, holdR: 0, sit: 0, eat: 0, crouch: 0, bag: 0, hands: null };
+    //   step:  she is moved by a scripted action (held, no physics): her
+    //          legs walk and shuffle with how her root moves instead of
+    //          sliding across the floor
+    this.act = { carry: 0, reach: null, holdR: 0, sit: 0, eat: 0, crouch: 0, bag: 0, hands: null, step: false };
+    this._was = { x: 0, z: 0, yaw: 0 };   // her root at the last update (act.step)
     this.actPose = new Pose();
   }
 
@@ -263,9 +268,19 @@ export class CharacterAnimation {
     this.time += dt;
     const t = this.time;
 
+    // Moved by an action: speed and turn from her root's motion since the
+    // last frame (capped: a placement is not a sprint).
+    const root = this.character.root, was = this._was;
+    let speed = s.speed, turnRate = s.turnRate;
+    if (this.act.step && dt > 0) {
+      speed = Math.max(speed, Math.min(1.4, Math.hypot(root.position.x - was.x, root.position.z - was.z) / dt));
+      turnRate ||= MathUtils.clamp(Math.atan2(Math.sin(root.rotation.y - was.yaw), Math.cos(root.rotation.y - was.yaw)) / dt, -6, 6);
+    }
+    was.x = root.position.x; was.z = root.position.z; was.yaw = root.rotation.y;
+
     // ---- Layer weights -------------------------------------------------
-    const moving = smooth01(s.speed / 1.2);
-    this.wLoco = damp(this.wLoco, s.grounded ? moving : 0, s.speed > 0.1 ? 10 : 7, dt);
+    const moving = smooth01(speed / 1.2);
+    this.wLoco = damp(this.wLoco, s.grounded ? moving : 0, speed > 0.1 ? 10 : 7, dt);
     this.wRun = damp(this.wRun, s.runBlend, 6, dt);
     this.wAir = damp(this.wAir, s.grounded ? 0 : 1, s.grounded ? 16 : 12, dt);
     this.vyAir = damp(this.vyAir, s.vy, 10, dt);
@@ -277,7 +292,7 @@ export class CharacterAnimation {
     // feet plant instead of sliding.
     // Real cadence: ~1.9 steps/s walking, ~3 steps/s running.
     const cycleLen = MathUtils.lerp(1.7, 3.5, this.wRun);
-    if (s.grounded) this.phase = (this.phase + (Math.max(s.speed, 0.6 * moving) * dt) / cycleLen) % 1;
+    if (s.grounded) this.phase = (this.phase + (Math.max(speed, 0.6 * moving) * dt) / cycleLen) % 1;
     // In the air the stride keeps cycling (slower), so a moving jump keeps
     // its legs and arms going instead of freezing in one pose.
     else this.phase = (this.phase + ((s.airSpeed || 0) * 0.6 * dt) / cycleLen) % 1;
@@ -289,13 +304,13 @@ export class CharacterAnimation {
     this.landImpact += this.landVel * dt;
 
     // Lean into turns while moving.
-    const leanTarget = MathUtils.clamp(-s.turnRate * s.speed * 0.035, -0.22, 0.22);
+    const leanTarget = MathUtils.clamp(-turnRate * speed * 0.035, -0.22, 0.22);
     this.lean = damp(this.lean, leanTarget, 6, dt);
 
     // Turning on the spot: shuffle feet.
-    const turnInPlace = Math.abs(s.turnRate) > 1.2 && s.speed < 0.6 && s.grounded ? 1 : 0;
+    const turnInPlace = Math.abs(turnRate) > 1.2 && speed < 0.6 && s.grounded ? 1 : 0;
     this.turnShuffle = damp(this.turnShuffle, turnInPlace, 10, dt);
-    this.turnPhase += Math.abs(s.turnRate) * dt * 0.9;
+    this.turnPhase += Math.abs(turnRate) * dt * 0.9;
 
     this._buildIdle(t);
     this._buildLoco(this.phase);
@@ -358,7 +373,7 @@ export class CharacterAnimation {
       // shift, which left one foot floating): thigh / shin angles match the
       // hip drop for ~0.4 m bones, so both feet stay flat on the floor; the
       // back leans in over the shelf.
-      const c = act.crouch;
+      const c = Math.min(1, act.crouch), over = Math.max(0, act.crouch - 1);
       const toward = (bone, x, y, z) => {
         const i = IDX[bone] * 3, r = out.r;
         r[i] += (x - r[i]) * c; r[i + 1] += (y - r[i + 1]) * c; r[i + 2] += (z - r[i + 2]) * c;
@@ -368,7 +383,7 @@ export class CharacterAnimation {
       toward('leftLowerLeg', 2.0, 0, 0); toward('rightLowerLeg', 2.0, 0, 0);
       toward('leftFoot', -0.75, 0, 0); toward('rightFoot', -0.75, 0, 0);
       out.hip[1] += (-0.37 - out.hip[1]) * c;
-      out.add('spine', 0.55 * c, 0, 0); out.add('chest', 0.25 * c, 0, 0); out.add('head', -0.35 * c, 0, 0);
+      out.add('spine', 0.55 * c + 0.9 * over, 0, 0); out.add('chest', 0.25 * c + 0.6 * over, 0, 0); out.add('head', -0.35 * c - 0.4 * over, 0, 0);
     }
 
     // Additive: anticipation crouch (knees bend, hips drop, arms swing back).

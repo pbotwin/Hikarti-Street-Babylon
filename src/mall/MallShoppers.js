@@ -6,6 +6,8 @@ import { MallNav } from './MallNav.js';
 import { ShopperGear } from './ShopperGear.js';
 import { ShopperMind } from './ShopperMind.js';
 import { CheckoutLine } from './CheckoutLines.js';
+import { STAFFED } from './Checkout.js';
+import { ResidentHand } from './Grip.js';
 import { shopperLine } from './ShopperTalk.js';
 
 /**
@@ -23,6 +25,9 @@ import { shopperLine } from './ShopperTalk.js';
  * residents' view distance, posed every frame only up close (every 2nd /
  * 4th further away), outlines only within the preset's outline distance.
  * Carts, baskets, bags and goods are shared thin instances (ShopperGear).
+ * What a shopper holds follows their posed right hand (ResidentHand), and
+ * what they put on a belt is taken off it by that lane's cashier
+ * (ctx.checkouts, the supermarket's staffed lanes: the others are closed).
  */
 const COUNT = { low: 6, medium: 9, high: 12, ultra: 14 };
 const SPARE = 4;
@@ -30,6 +35,7 @@ const TALK_R = 2.2, GREET_R = 3.2, LABEL_R = 9;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const _v = new Vector3();
 
 export class MallShoppers {
   constructor(ctx) {
@@ -49,7 +55,7 @@ export class MallShoppers {
     const ids = shuffle(npcs.items.filter((i) => i.vrm && !i.lent).map((i) => i.id)).slice(0, this.max + SPARE);
     this.gear = new ShopperGear(this.ctx, ids.length);
     this.nav = new MallNav(layout.nav, collision, layout.building.floorY);
-    this.lines = (layout.checkouts || []).map((c) => new CheckoutLine(c, this.gear));
+    this.lines = (layout.checkouts || []).slice(0, STAFFED).map((c) => new CheckoutLine(c, this.gear));
     this.till = layout.fashion?.till ? new CheckoutLine(layout.fashion.till, this.gear) : null;
     this.cars = parkedCars(layout);
     this.group = new TransformNode('mall shoppers', scene);
@@ -88,7 +94,8 @@ export class MallShoppers {
       facing: 0, facingTarget: 0, moving: false, moveSpeed: 0, speed: 0, walkPhase: 0, lookYaw: 0, pace: rnd(0.88, 1.1),
       act: null, actK: 0, hands: { l: null, r: null, lean: 0, pitch: 0 },
       handL: new Vector3(), handR: new Vector3(), reachAt: new Vector3(), dropAt: new Vector3(), carryAt: new Vector3(),
-      reaching: false, good: null, carryGood: null, bag: null, paid: 0, line: null, parked: false,
+      reaching: false, good: null, carryGood: null, bag: null, paid: 0, line: null, parked: false, steering: false,
+      held: null, heldShow: false, heldTurn: 0, grip: new ResidentHand(item.vrm),   // what the right hand holds (a good)
       park: { x0: 0, z0: 0, yaw0: 0, x: 0, z: 0, yaw: 0 }, cart: { x: 0, z: 0, yaw: 0 },
       duck: 0, yieldT: 0, smiled: false, talkT: 0, waveT: 0, greeted: -999, mouth: 0, distance: Infinity,
       phase: index * 1.73,
@@ -125,6 +132,7 @@ export class MallShoppers {
     s.line = null;
     this.mind.leaveRoom(s);
     if (s.good) { gear.drop(s.good); s.good = null; }
+    s.held = null;
     if (s.carryGood) { gear.drop(s.carryGood); s.carryGood = null; }
     if (s.bag) { gear.releaseBag(s.bag); s.bag = null; }
     gear.setKind(s.index, null);
@@ -149,7 +157,13 @@ export class MallShoppers {
     const { player, npcs } = this.ctx;
     const pl = this._player, pp = player.position;
     pl.x = pp.x; pl.y = pp.y; pl.z = pp.z;
-    for (const l of this.lines) { l.blocked = herAt(l, pl); l.update(dt); }
+    const lanes = this.ctx.checkouts?.lanes;
+    for (let i = 0; i < this.lines.length; i++) {
+      const l = this.lines[i];
+      l.blocked = herAt(l, pl);
+      if (!l.cashier && lanes?.[i]?.cashier) l.cashier = this.ctx.checkouts.server(lanes[i]);
+      l.update(dt);
+    }
     if (this.till) this.till.blocked = herAt(this.till, pl);
     // Fewer shoppers while the governor says the CPU is busy (it draws residents nearer).
     const scale = npcs.distanceScale ?? 1, range = npcs.viewDistance * scale;
@@ -164,7 +178,7 @@ export class MallShoppers {
       s.distance = d;
       // 3 m of hysteresis, as the city's residents: no popping at the edge.
       this._show(s, !s.hidden && d < (s.shown ? range + 3 : range));
-      if (!s.shown) continue;
+      if (!s.shown) { this._holdings(s, false); continue; }
       const toHer = Math.atan2(dx, dz);
       // Greeting her as she comes by: a wave and a smile, now and then.
       if (d < GREET_R && this.time - s.greeted > 40 && !s.duck) {
@@ -238,6 +252,27 @@ export class MallShoppers {
     // Waving back (not while a hand is busy with a product or a garment).
     if (s.waveT > 0 && !s.reaching) applyAct(r, 'wave', t, Math.min(1, s.waveT * 2), false);
     syncPose(r);
+    this._holdings(s, true);
+  }
+
+  /**
+   * What their right hand holds, in it: as posed this frame (`posed`), else
+   * (not drawn) where the hand is meant to be. A product by its middle, a
+   * garment held up by its hanger between both hands, a garment over the arm
+   * or a bag by its handles.
+   */
+  _holdings(s, posed) {
+    const gear = this.gear, f = s.facing;
+    if (!s.held && !s.carryGood && !s.bag) return;
+    const p = posed ? s.grip.palm(_v) : s.hands.r || s.carryAt;
+    const g = s.held;
+    if (g && s.heldShow) {
+      // Between the hands (the left one 0.3 m to the left of the right one).
+      const rx = Math.cos(f), rz = -Math.sin(f);
+      gear.moveGood(g, p.x - rx * 0.15, p.y + (g.shape === 'tee' ? 0.03 : -0.08), p.z - rz * 0.15, f + Math.PI + s.heldTurn);
+    } else if (g) gear.moveGood(g, p.x, p.y - g.entry.size.h * 0.5, p.z, f);
+    else if (s.carryGood) gear.moveGood(s.carryGood, p.x, p.y - 0.05, p.z, f + Math.PI / 2);
+    if (s.bag) gear.carryBag(s.bag, p.x, p.y, p.z, f + Math.PI / 2);
   }
 
   // ------------------------------------------------------------ talking

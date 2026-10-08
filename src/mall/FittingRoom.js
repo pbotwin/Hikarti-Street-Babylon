@@ -18,6 +18,9 @@ import { tone } from './Tones.js';
  */
 
 const CURTAIN_TIME = 0.7;
+// Shoes are set down and picked up by their heels' tops, LOW above the floor
+// (her hand, bending over, gets there); let go, they settle in DROP s.
+const LOW = 0.12, DROP = 0.12;
 
 export class FittingRoom {
   constructor(scene, data) {
@@ -88,31 +91,48 @@ export class TryOn {
     room.inUse = true;
     const walk = { x: d.inside.x, z: d.inside.z, done: () => { walk.over = true; } };
     const at = { x: 0, z: 0, yaw: 0 };
-    const hook = { x: d.hook[0], y: d.hook[1] - 0.05, z: d.hook[2] };
     const floorY = f.ctx.layout.building?.floorY ?? 0;
-    f.timeline.play([
+    const toHook = Math.atan2(d.hook[0] - d.inside.x, d.hook[2] - d.inside.z);
+    const garments = f.carried.filter((c) => c.unit.shape !== 'sneakers'), shoes = f.carried.filter((c) => c.unit.shape === 'sneakers');
+    const start = room.left.length;
+    const steps = [
       { until: () => walk.over, step: (k, dt, first) => { if (first) player.autoWalk = walk; } },
       // Onto the spot, facing the mirror; the curtain closes behind her.
       { d: 0.4, step: (k, dt, first) => {
-        if (first) { player.hold = true; at.x = player.position.x; at.z = player.position.z; at.yaw = player.yaw; room.draw(true); this._swish(); }
+        if (first) { f.her.freeze(true); at.x = player.position.x; at.z = player.position.z; at.yaw = player.yaw; room.draw(true); this._swish(); }
         const m = ease(k);
-        player.position.x = lerp(at.x, d.inside.x, m); player.position.z = lerp(at.z, d.inside.z, m);
+        f.her.place(lerp(at.x, d.inside.x, m), lerp(at.z, d.inside.z, m), player.yaw);
         f.turn(at.yaw, room.yaw, k);
       } },
       { until: () => !room.moving },
-      // Everything she brought goes on the hook.
-      ...f.reachSteps(hook, () => {
-        const start = room.left.length;
-        for (const c of f.carried) {
-          const spot = room.spot(start + this.items.length, c.unit.shape === 'sneakers', floorY);
+    ];
+    // Up to the hook; the hangers onto it, all at once off her fingers.
+    steps.push(f.stepUp(d.hook[0], d.hook[1], d.hook[2], d.inside));
+    if (garments.length) {
+      const spot = room.spot(start, false, floorY);
+      steps.push(...f.reachSteps(f.palmFor(f.carried.indexOf(garments[0]), false, spot.x, spot.y, spot.z, toHook), () => {
+        for (const c of garments) {
+          const sp = room.spot(start + this.items.length, false, floorY);
           this.items.push({ id: c.id, item: c.item, unit: c.unit, status: 'new' });
-          f.settle(c.unit, spot.x, spot.y, spot.z, spot.yaw, { d: 0.3, arc: c.unit.shape === 'sneakers' ? 0.05 : 0 });
+          f.settle(c.unit, sp.x, sp.y, sp.z, sp.yaw, { d: 0.25 });
+          f.drop(c);
         }
-        f.drop();
         f._click();
-      }, { turn: { yaw: Math.atan2(hook.x - d.inside.x, hook.z - d.inside.z) } }),
-      { d: 0.25, step: (k, dt, first) => { if (first) at.yaw = player.yaw; f.turn(at.yaw, room.yaw, k); } },
-    ], () => {
+      }));
+    }
+    // Shoes: she crouches and sets each pair down below the hook.
+    for (const c of shoes) {
+      const i = this.items.length + garments.length + shoes.indexOf(c), sp = room.spot(start + i, true, floorY);
+      steps.push(...f.reachSteps(f.palmFor(0, true, sp.x, sp.y + LOW, sp.z, toHook), () => {
+        this.items.push({ id: c.id, item: c.item, unit: c.unit, status: 'new' });
+        f.drop(c);
+        f.settle(c.unit, sp.x, sp.y, sp.z, sp.yaw, { d: DROP });
+        f._click();
+      }));
+    }
+    // Back to the middle, facing the mirror.
+    steps.push(f.her.goTo(() => ({ x: d.inside.x, z: d.inside.z, yaw: room.yaw })));
+    f.timeline.play(steps, () => {
       // The view turns to the mirror, and the first piece goes on.
       f.mirror.aim(d.inside, d.mirror);
       this.live = true;
@@ -207,20 +227,31 @@ export class TryOn {
       this._swish();
       return f.ctx.shops.previewOutfit(null);
     });
-    const hook = { x: d.hook[0], y: d.hook[1] - 0.05, z: d.hook[2] };
     const walk = { x: d.door.x, z: d.door.z, done: () => { walk.over = true; } };
-    f.timeline.play([
-      { until: () => f.mirror.clear },
-      ...f.reachSteps(hook, () => {
-        for (const it of this.items) {
-          if (it.status === 'left') room.left.push(it.unit);
-          else f.attach(it.id, it.unit, { kept: it.status === 'kept' });
-        }
+    const toHook = Math.atan2(d.hook[0] - d.inside.x, d.hook[2] - d.inside.z);
+    const take = this.items.filter((it) => it.status !== 'left');
+    for (const it of this.items) if (it.status === 'left') room.left.push(it.unit);
+    const steps = [{ until: () => f.mirror.clear }, f.stepUp(d.hook[0], d.hook[1], d.hook[2], d.inside)];
+    // The hangers off the hook together, then each pair of shoes from the floor.
+    const hung = take.filter((it) => it.unit.shape !== 'sneakers'), shoes = take.filter((it) => it.unit.shape === 'sneakers');
+    if (hung.length) {
+      const u = hung[0].unit;
+      steps.push(...f.reachSteps(f.palmFor(f.carried.length, false, u.x, u.y, u.z, toHook), () => {
+        for (const it of hung) f.attach(it.id, it.unit, { kept: it.status === 'kept' });
         f._click();
-      }, { turn: { yaw: Math.atan2(hook.x - d.inside.x, hook.z - d.inside.z) } }),
-      { d: 0, done: () => { player.hold = false; } },
+      }));
+    }
+    for (const it of shoes) {
+      steps.push(...f.reachSteps({ x: it.unit.x, y: it.unit.y + LOW, z: it.unit.z }, () => {
+        f.attach(it.id, it.unit, { kept: it.status === 'kept' });
+        f._click();
+      }));
+    }
+    steps.push(
+      { d: 0, done: () => f.her.freeze(false) },
       { until: () => walk.over, step: (k, dt, first) => { if (first) player.autoWalk = walk; } },
-    ], () => this._end());
+    );
+    f.timeline.play(steps, () => this._end());
   }
 
   _end() {

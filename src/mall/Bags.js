@@ -61,6 +61,23 @@ export class Bags {
    * item), or null when it doesn't fit (a new bag then).
    */
   pack(bag, item, size) {
+    const best = this._spot(bag, size);
+    if (!best) return null;
+    const H = bag.heights, cols = 14, cw = INNER.w / cols, rd = INNER.d / 7, { nc, nr } = best;
+    for (let r = best.r0; r < best.r0 + nr; r++) for (let c = best.c0; c < best.c0 + nc; c++) H[r * cols + c] = best.base + size.h;
+    const local = {
+      x: -INNER.w / 2 + (best.c0 + nc / 2) * cw, y: 0.012 + best.base, z: -INNER.d / 2 + (best.r0 + nr / 2) * rd,
+      yaw: (bag.items.length % 2 ? 0.1 : -0.08),
+    };
+    bag.items.push({ item, local });
+    return local;
+  }
+
+  /** Is there room in the bag for something this size? */
+  fits(bag, size) { return !!this._spot(bag, size); }
+
+  /** The lowest spot a pack fits in the bag (null: it doesn't, or the bag is full). */
+  _spot(bag, size) {
     if (bag.items.length >= BAG.hold) return null;
     const H = bag.heights, cols = 14, rows = 7, cw = INNER.w / cols, rd = INNER.d / rows;
     // Packs too long for the bag stand on end.
@@ -71,17 +88,10 @@ export class Bags {
       for (let c0 = 0; c0 + nc <= cols; c0++) {
         let base = 0;
         for (let r = r0; r < r0 + nr; r++) for (let c = c0; c < c0 + nc; c++) base = Math.max(base, H[r * cols + c]);
-        if (!best || base < best.base - 0.005) best = { base, c0, r0 };
+        if (!best || base < best.base - 0.005) best = { base, c0, r0, nc, nr };
       }
     }
-    if (best.base > 0.005 && best.base + size.h > BAG.h + 0.04) return null;
-    for (let r = best.r0; r < best.r0 + nr; r++) for (let c = best.c0; c < best.c0 + nc; c++) H[r * cols + c] = best.base + size.h;
-    const local = {
-      x: -INNER.w / 2 + (best.c0 + nc / 2) * cw, y: 0.012 + best.base, z: -INNER.d / 2 + (best.r0 + nr / 2) * rd,
-      yaw: (bag.items.length % 2 ? 0.1 : -0.08),
-    };
-    bag.items.push({ item, local });
-    return local;
+    return best.base > 0.005 && best.base + size.h > BAG.h + 0.04 ? null : best;
   }
 
   /** Bag-space point to world (for an item on its way in). */

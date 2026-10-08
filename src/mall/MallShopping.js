@@ -7,7 +7,7 @@ import { Bags, carrier } from './Bags.js';
 import { Checkouts, totalOf } from './Checkout.js';
 import { Boot } from './Boot.js';
 import { Her, lerpAngle } from './Her.js';
-import { Timeline, ease, lerp } from './Timeline.js';
+import { Timeline, clamp, ease, lerp } from './Timeline.js';
 import { shopSounds } from './ShopSounds.js';
 
 /**
@@ -18,16 +18,22 @@ import { shopSounds } from './ShopSounds.js';
  * (Checkout: belt, cashier, bags, paying), loads the bags into the boot and
  * drives off; leaving through the lot's exit ends the trip.
  *
- * Everything she handles moves smoothly from where it is (shelf, cart,
- * belt, bag) along an arc to her hand and on to where it goes; nothing pops.
+ * Nothing moves by itself: whatever she handles is in her hand (Her.hold:
+ * it follows her palm), resting on something (a shelf, the cart's basket,
+ * the belt, a bag), or falling the last bit into its place when let go.
+ * She walks up to what she reaches for (stepping, not sliding).
  * Loose packs are pooled thin instances (`goods`), the shelves' packs are
  * ShelfStock's, carts and bags are thin instances too.
  */
 const ICON = { cart: '🛒', take: '✋', back: '↩' };
 const SHAPES = ['can', 'bottle', 'bigBottle', 'carton', 'tub', 'block', 'bag', 'box', 'jar', 'loaf', 'bun', 'fruit', 'tray', 'roll', 'pack'];
 const _eye = new Vector3(), _dir = new Vector3(), _v = new Vector3();
-const _spot = { x: 0, z: 0 }, _local = { x: 0, y: 0, z: 0 };
+const _spot = { x: 0, z: 0 }, _local = { x: 0, y: 0, z: 0 }, _probe = { x: 0, z: 0 }, _palm = { x: 0, y: 0, z: 0 };
 const NONE = [];
+// Her body's centre from a shelf's front edge when she reaches into it, and
+// her right shoulder from her centre (where her hand reaches from).
+const STAND = 0.34, SHOULDER = 0.14;
+const RIM = 0.99;   // m: a cart basket's top rim, which what goes in or out is lifted over
 
 export class MallShopping {
   constructor(ctx) {
@@ -37,13 +43,13 @@ export class MallShopping {
     this.tones = shopSounds(ctx.audio);
     this.pushing = new Pushing(ctx, this.tones);
     this.mine = null;         // her cart (pushed or parked somewhere)
-    this.held = null;         // an item in her right hand (no cart)
-    this.inHand = null;       // what her palm carries during an action: an item, or a bag (carrier)
+    this.held = null;         // an item she keeps in her right hand (no cart)
     this.hanging = [];        // more bags hanging from the same hand (the clothing store's), waiting their turn
     this.target = null;       // the shelf pack she is looking at: { f, u }
     this.time = 0;
     this._walk = null;
     this._slot = null;        // the corral slot a prompt is about
+    this._handsOn = null;     // the cart her hands went back on at the end of an action
     // One prompt object per action, made once (prompt() runs every frame).
     const P = (label, icon, priority, run) => ({ label, icon, priority, distance: 0, run });
     this._prompts = {
@@ -73,6 +79,8 @@ export class MallShopping {
     this._corrals();
     this.bags = new Bags(scene, graphics, this.goods);
     this.checkouts = new Checkouts(this);
+    // The staffed lanes' cashiers also serve the shoppers (MallShoppers).
+    this.ctx.checkouts = this.checkouts;
     this.boot = new Boot(this);
     await Promise.all([this.checkouts.init(), this.boot.init()]);
     this._onPanel = (e) => {
@@ -153,7 +161,7 @@ export class MallShopping {
     this.checkouts.update(dt);
     this.boot.update(dt);
     this.fleet.update(dt);
-    this._carryInHand(dt);
+    this._carryInHand();
     this.goods.flush();
     this.bags.update();
     this.stock.update(dt, this.ctx.camera.position);
@@ -161,27 +169,17 @@ export class MallShopping {
     this._panel();
   }
 
-  /** What her palm carries follows it (blending in from where it was picked up). */
-  _carryInHand(dt) {
-    const h = this.inHand;
-    if (!h && !this.hanging.length) return;
-    const yaw = this.her.yaw;
-    this.her.palm(_v);
-    const px = _v.x, py = _v.y, pz = _v.z;
-    // Bags waiting their turn hang beside the one she handles.
+  /** What her hand holds follows her palm; bags waiting their turn hang beside it. */
+  _carryInHand() {
+    const her = this.her;
+    her.carry();
+    if (!this.hanging.length) return;
+    const yaw = her.yaw;
+    her.palm(_v);
     for (let i = 0; i < this.hanging.length; i++) {
       const e = this.hanging[i], o = (i + 1) * 0.02;
-      e.put(px + Math.cos(yaw) * o, py - e.handle + 0.015, pz - Math.sin(yaw) * o, yaw + Math.PI / 2);
+      e.put(_v.x + Math.cos(yaw) * o, _v.y - e.handle + 0.015, _v.z - Math.sin(yaw) * o, yaw + Math.PI / 2);
     }
-    if (!h) return;
-    _v.y -= h.carrier ? h.handle - 0.015 : h.size.h / 2;
-    if (h.blend < 1) {
-      h.blend = Math.min(1, h.blend + dt / 0.14);
-      const k = ease(h.blend), f = h.grab;
-      _v.set(lerp(f.x, _v.x, k), lerp(f.y, _v.y, k), lerp(f.z, _v.z, k));
-    }
-    if (h.carrier) h.put(_v.x, _v.y, _v.z, yaw + Math.PI / 2);
-    else this.goods.move(h.unit, _v.x, _v.y, _v.z, yaw);
   }
 
   // ------------------------------------------------------------ the clothing store's bags
@@ -201,7 +199,7 @@ export class MallShopping {
       for (const b of this.ctx.fashion.takeBags()) this.hanging.push(storeBag(b.mesh));
     }
     const e = this.hanging.shift();
-    if (e) this.grip(e, e.x, e.y, e.z);
+    if (e) this.her.hold(e, e.x, e.y, e.z, e.yaw);
     return e || null;
   }
 
@@ -211,18 +209,10 @@ export class MallShopping {
     her.freeze(true);
     const next = () => {
       const e = this.nextCarried();
-      if (!e) { this._after(null); then?.(); return; }
-      this.tl.play(this._intoCart(() => e, cart, { x: her.x, z: her.z, yaw: her.yaw }, false), next);
+      if (!e) { this._after(); then?.(); return; }
+      this.tl.play(this._intoCart(() => e, cart, false), next);
     };
     next();
-  }
-
-  /** Her palm takes something (an item, or a bag) from where it is now (its base). */
-  grip(thing, x, y, z) {
-    thing.grab = { x, y, z };
-    thing.blend = 0;
-    this.inHand = thing;
-    this.her.act.holdR = 1;
   }
 
   /** The pack she would take (or put back) now, under the camera's aim; and its marker. */
@@ -373,6 +363,11 @@ export class MallShopping {
     });
   }
 
+  /** Steps: she lets go of the cart's handle (her hands back to her sides). */
+  _handsOff(cart) {
+    return [{ d: 0.3, step: (k) => this._hands(cart, 1 - ease(k)) }];
+  }
+
   /** Both hands on a cart's handle with weight w. */
   _hands(cart, w) {
     const h = this.pushing.hands;
@@ -387,123 +382,274 @@ export class MallShopping {
     this.ctx.player.autoWalk = { x, z, done: () => { this._walk = null; done(); } };
   }
 
+  // ------------------------------------------------------------ her moves
+  /** A step walking her to the pose `to()` gives when it starts (Her.goTo). */
+  _go(to, each = null) { return this.her.goTo(to, each); }
+
+  /**
+   * Her hand brings what she holds to her waist, in front of her right hip,
+   * as she moves (eased there from wherever it was: no jump).
+   */
+  _front(dt) {
+    const her = this.her, r = her.reach, s = Math.sin(her.yaw), c = Math.cos(her.yaw);
+    if (!her.act.reach) her.reachFromHand();
+    const x = r.x, y = r.y, z = r.z, k = 1 - Math.exp(-10 * dt);
+    her.palmTo(her.x + s * 0.3 - c * 0.14, 0.92, her.z + c * 0.3 + s * 0.14, 1);
+    her.reachTo(lerp(x, r.x, k), lerp(y, r.y, k), lerp(z, r.z, k), 1);
+  }
+
+  /** Steps: her hand from the reach down to her side (act.bag), what she holds hanging from it. */
+  _toSide() {
+    const her = this.her, act = this.ctx.animation.act, r = her.reach;
+    let from = null;
+    return [{ d: 0.4, step: (k, dt, first) => {
+      if (first) from = { x: r.x, y: r.y, z: r.z, crouch: act.crouch };
+      her.side(_v);
+      const m = ease(k);
+      her.reachTo(lerp(from.x, _v.x, m), lerp(from.y, _v.y, m), lerp(from.z, _v.z, m), 1);
+      act.crouch = from.crouch * (1 - m);
+    }, done: () => { act.bag = 1; act.reach = null; act.crouch = 0; } }];
+  }
+
+  /** Steps: her empty hand back from the reach, unbending. */
+  _handBack(lift = 0.12) {
+    const her = this.her, act = this.ctx.animation.act, r = her.reach;
+    let from = null;
+    return [{ d: 0.35, step: (k, dt, first) => {
+      if (first) from = { x: r.x, y: r.y, z: r.z, crouch: act.crouch };
+      const m = ease(k);
+      her.reachTo(from.x, from.y + lift * m, from.z, 1 - m);
+      act.crouch = from.crouch * (1 - m);
+    }, done: () => { act.reach = null; act.crouch = 0; } }];
+  }
+
+  /**
+   * Steps: her palm (`hand` false) or what she holds (true) from where it is
+   * to a world pose (`at()` when the step starts: { x, y, z, yaw?, rx? },
+   * yaw turning the held thing in her fingers), arcing over `lift`,
+   * crouching (bending in) as far as her palm needs to get there (at least
+   * `crouch`); then held
+   * there a moment so the hand settles (the arm's solve lags its target by a
+   * frame).
+   */
+  _move(hand, at, crouch, lift, d) {
+    const her = this.her, act = this.ctx.animation.act;
+    let from = null, to = null, c = 0;
+    const put = (x, y, z) => (hand ? her.holdTo(x, y, z, 1) : her.palmTo(x, y, z, 1));
+    return [
+      { d, step: (k, dt, first) => {
+        if (first) {
+          if (!act.reach) her.reachFromHand();
+          if (hand) { her.carry(); her.heldAt(_v); } else her.palm(_v);
+          from = { x: _v.x, y: _v.y, z: _v.z, crouch: act.crouch };
+          to = at();
+          const p = hand ? her.palmFor(to.x, to.y, to.z, _palm) : to;
+          c = Math.max(crouch, her.crouchTo(p.x, p.y, p.z));
+        }
+        const m = ease(k);
+        act.crouch = lerp(from.crouch, c, m);
+        if (hand && to.yaw !== undefined) her.turnHeld(to.yaw, to.rx || 0, Math.min(1, dt * 8));
+        put(lerp(from.x, to.x, m), lerp(from.y, to.y, m) + Math.sin(m * Math.PI) * lift, lerp(from.z, to.z, m));
+      } },
+      { d: 0.12, step: () => {
+        if (hand && to.yaw !== undefined) her.turnHeld(to.yaw, to.rx || 0, 0.5);
+        put(to.x, to.y, to.z);
+      } },
+    ];
+  }
+
+  // ------------------------------------------------------------ where she stands
+  /** Where she stands to take pack u of facing f with her right hand ({ x, z, yaw } into out). */
+  _shelfStance(f, u, out) {
+    const her = this.her, bin = f.kind === 'bin';
+    // A bin is reached from whichever side she is on.
+    const side = bin && (her.x - f.x) * f.nx + (her.z - f.z) * f.nz < 0 ? -1 : 1;
+    const nx = f.nx * side, nz = f.nz * side;
+    const along = (u.x - f.x) * f.ax + (u.z - f.z) * f.az;
+    const yaw = Math.atan2(-nx, -nz), rx = -Math.cos(yaw), rz = Math.sin(yaw);
+    const off = (bin ? f.depth / 2 : 0) + STAND;
+    out.x = f.x + f.ax * along + nx * off - rx * SHOULDER;
+    out.z = f.z + f.az * along + nz * off - rz * SHOULDER;
+    out.yaw = yaw;
+    return out;
+  }
+
+  /** Where her palm takes hold of pack u: on its front (shelves), on top (bins). */
+  _gripOn(f, u, out) {
+    if (f.kind === 'bin') {
+      out.x = u.x; out.y = f.y + f.h + 0.012; out.z = u.z;
+      return out;
+    }
+    const d = dims(f.p);
+    out.x = u.x + f.nx * (d.d / 2 + 0.015);
+    out.y = u.y + Math.min(d.h * 0.5, 0.12);
+    out.z = u.z + f.nz * (d.d / 2 + 0.015);
+    return out;
+  }
+
+  /**
+   * Where she stands at her cart to reach into its basket at cart-space z:
+   * beside it (`side` in cart space, or her side first, the other if
+   * something is in the way), facing it, the spot just to her right; behind
+   * the handle when both sides are blocked. Coming from the other side or
+   * the handle, she goes round the handle end (`via`).
+   */
+  _cartStance(cart, lz, out, side = 0) {
+    const her = this.her, col = this.ctx.collision, y = this.ctx.player.position.y;
+    cart.toLocal(her.x, 0, her.z, _local);
+    const first = _local.x >= 0 ? 1 : -1, z = clamp(lz, -0.22, 0.24);
+    if (!side) {
+      col.ignore = cart.collider;
+      for (const s of [first, -first]) {
+        cart.toWorld(s * 0.5, 0, z, _probe);
+        if (!col.resolveCircle(_probe, 0.17, y, 1.5, 0.3)) { side = s; break; }
+      }
+      col.ignore = null;
+    }
+    if (!side) {
+      cart.toWorld(0, 0, -0.72, out);
+      out.yaw = cart.yaw;
+      return out;
+    }
+    cart.toWorld(side * 0.5, 0, z, out);
+    out.yaw = cart.yaw - side * Math.PI / 2;
+    // The spot to her right: she stands a little to its left.
+    out.x += Math.cos(out.yaw) * SHOULDER * 0.6;
+    out.z -= Math.sin(out.yaw) * SHOULDER * 0.6;
+    out.via = this._round(cart, out.x, out.z);
+    return out;
+  }
+
+  /**
+   * The corners she walks round to get from where she is to (x, z) without
+   * passing through the cart (null: the way is clear): round its handle end
+   * or its nose, whichever is shorter.
+   */
+  _round(cart, x, z) {
+    const a = cart.toLocal(this.her.x, 0, this.her.z, {}), b = cart.toLocal(x, 0, z, {});
+    const HX = CART.half.x + 0.2, HZ = CART.half.z + 0.2;
+    // Does the straight way cross the cart (with room for her body)? The segment clipped to that box.
+    let t0 = 0, t1 = 1;
+    for (const [p, q, h] of [[a.x, b.x, HX], [a.z, b.z, HZ]]) {
+      const d = q - p;
+      if (Math.abs(d) < 1e-6) { if (Math.abs(p) > h) return null; continue; }
+      const u = (-h - p) / d, v = (h - p) / d;
+      t0 = Math.max(t0, Math.min(u, v)); t1 = Math.min(t1, Math.max(u, v));
+      if (t0 > t1) return null;
+    }
+    const sa = a.x >= 0 ? 1 : -1, sb = b.x >= 0 ? 1 : -1, X = HX + 0.05;
+    let best = null, bestLen = Infinity;
+    for (const end of [-1, 1]) {
+      const Z = end * (HZ + 0.05);
+      const via = sa === sb ? [[sa * X, Z]] : [[sa * X, Z], [sb * X, Z]];
+      let len = 0, px = a.x, pz = a.z;
+      for (const [vx, vz] of via) { len += Math.hypot(vx - px, vz - pz); px = vx; pz = vz; }
+      len += Math.hypot(b.x - px, b.z - pz);
+      if (len < bestLen) { bestLen = len; best = via; }
+    }
+    return best.map(([vx, vz]) => cart.toWorld(vx, 0, vz, {}));
+  }
+
   // ------------------------------------------------------------ products
   /** A loose pack of product p where shelf pack u stood (a cart entry: size, put). */
   _item(p, f, u) {
     const unit = this.goods.acquire(p.look.shape, p.look.color, groceryLabel(p.id), p.look.size || 1);
     this.goods.move(unit, u.x, u.y, u.z, u.ry, u.rx);
     const item = { id: p.id, p, size: dims(p), unit, from: { f, u }, flying: false };
-    item.put = (x, y, z, yaw) => this.goods.move(unit, x, y, z, yaw);
+    item.put = (x, y, z, yaw, rx = 0) => this.goods.move(unit, x, y, z, yaw, rx);
     return item;
   }
 
   /**
-   * Take a pack off the shelf: she lets go of her cart (if pushing), turns
-   * and leans in (crouching for low shelves), takes it and puts it in the
-   * cart's basket, or keeps it in her hand; then back to the handle.
+   * Take a pack off the shelf: she lets go of her cart (if pushing), steps
+   * up to the shelf, reaches (crouching for low shelves), her hand closes on
+   * the pack and draws it out; then into her cart's basket (and back to the
+   * handle), or she keeps it in her hand.
    */
   takeProduct(f, u) {
     const pushing = this.pushing.active;
     // Her cart: the one she pushes, or hers standing within reach.
     const cart = pushing || (this.mine && Math.hypot(this.mine.x - this.her.x, this.mine.z - this.her.z) < 1.5) ? this.mine : null;
+    if (cart && !cart.fits(dims(f.p))) { this.ctx.hud.toast('The cart is full', 'Check out what you have'); return; }
     if (pushing) this.pushing.stop();
-    const her = this.her, act = this.ctx.animation.act;
+    const her = this.her, bin = f.kind === 'bin';
     her.freeze(true);
-    const x0 = her.x, z0 = her.z, yaw0 = her.yaw;
-    const face = Math.atan2(u.x - x0, u.z - z0);
-    const h = f.kind === 'bin' ? f.h : dims(f.p).h;
-    const crouch = Her.crouchFor(u.y + h), lean = 0.08 + 0.16 * crouch;
-    const hy = u.y + Math.min(0.08, h * 0.6);
+    const grip = this._gripOn(f, u, {});
     let item = null;
     const steps = [
-      // Hands off the handle while she turns and leans in.
-      { d: 0.45, step: (k) => {
-        const m = ease(k);
-        if (pushing) this._hands(cart, 1 - ease(k * 2));
-        her.place(x0 + Math.sin(face) * lean * m, z0 + Math.cos(face) * lean * m, lerpAngle(yaw0, face, m));
-        act.crouch = crouch * m;
-        her.reachTo(u.x, hy, u.z, ease((k - 0.25) / 0.75));
-      }, done: () => {
+      this._go(() => this._shelfStance(f, u, {}), pushing ? (m) => this._hands(cart, 1 - ease(m * 2.5)) : null),
+      ...this._move(false, () => grip, 0, 0.04, 0.5),
+      // Her fingers close on it; she draws it out of its row (lifts it off the pile), turning it to her.
+      { d: 0, done: () => {
         this.stock.take(f, u);
         item = this._item(f.p, f, u);
-        this.grip(item, u.x, u.y, u.z);
+        her.hold(item, u.x, u.y, u.z, u.ry, u.rx);
         this.tones.click();
       } },
+      ...this._move(true, () => ({ x: u.x + f.nx * (bin ? 0.04 : 0.2), y: u.y + (bin ? 0.16 : 0.05), z: u.z + f.nz * (bin ? 0.04 : 0.2), yaw: her.yaw + Math.PI }), 0, 0, 0.35),
     ];
-    if (cart) steps.push(...this._intoCart(() => item, cart, { x: x0, z: z0, yaw: yaw0 }, pushing));
-    else {
-      steps.push({ d: 0.55, step: (k) => {
-        const m = ease(k);
-        act.crouch = crouch * (1 - m);
-        her.place(x0 + Math.sin(face) * lean * (1 - m), z0 + Math.cos(face) * lean * (1 - m), face);
-        her.reachTo(lerp(u.x, x0 + Math.sin(face) * 0.3, m), lerp(hy, 1.0, m) + Math.sin(k * Math.PI) * 0.08,
-          lerp(u.z, z0 + Math.cos(face) * 0.3, m), 1 - ease((k - 0.55) / 0.45));
-      } });
-    }
+    if (cart) steps.push(...this._intoCart(() => item, cart, pushing));
+    else steps.push(...this._toSide());
     this.tl.play(steps, () => {
       if (!cart) this.held = item;
-      this._after(pushing ? cart : null);
+      this._after();
     });
   }
 
   /**
-   * Steps taking what her palm holds into a cart's basket: turn to its slot,
-   * over the basket, down, let go (the cart settles it in), and (`handle`)
-   * back to the handle at `back` ({ x, z, yaw }).
+   * Steps taking what her hand holds into a cart's basket: she steps beside
+   * the basket, lifts it over the side, lowers it into its place and lets go
+   * (it drops the last bit); then (`handle`) back to the handle, pushing.
+   * `side`: the cart's side she works from (0: whichever is free).
    */
-  _intoCart(getItem, cart, back, handle) {
-    const her = this.her, act = this.ctx.animation.act;
-    let from = null, slot = null, item = null, lift = 0, top = 0;
-    const toSlot = () => Math.atan2(slot.x - back.x, slot.z - back.z);
-    return [
-      { d: 0.5, step: (k, dt, first) => {
-        if (first) {
-          item = getItem();
-          from = { x: her.x, z: her.z, yaw: her.yaw, crouch: act.crouch, rx: her.reach.x, ry: her.reach.y, rz: her.reach.z };
-          item.flying = true;
-          if (!cart.stow(item)) this.ctx.hud.toast('The cart is full', 'Check out what you have');
-          slot = cart.slotWorld(item, { x: 0, y: 0, z: 0 });
-          // Her wrist over the slot: a pack held at its middle, a bag by its handles.
-          lift = item.carrier ? item.handle + 0.06 : item.size.h + 0.12;
-          top = slot.y + (item.carrier ? item.handle : item.size.h);
-        }
-        const m = ease(k);
-        her.place(lerp(from.x, back.x, m), lerp(from.z, back.z, m), lerpAngle(from.yaw, toSlot(), m));
-        act.crouch = lerp(from.crouch, 0, m);
-        her.reachTo(lerp(from.rx, slot.x, m), lerp(from.ry, slot.y + lift, m) + Math.sin(k * Math.PI) * 0.12, lerp(from.rz, slot.z, m), 1);
-      } },
-      { d: 0.25, step: (k) => {
-        act.crouch = Her.crouchFor(top) * 0.5 * ease(k);
-        her.reachTo(slot.x, slot.y + lift - 0.1 * ease(k), slot.z, 1);
-      }, done: () => this._release(item, cart) },
-      { d: 0.45, step: (k) => {
-        const m = ease(k);
-        act.crouch = Her.crouchFor(top) * 0.5 * (1 - m);
-        her.reachTo(slot.x, slot.y + lift - 0.1 + 0.2 * m, slot.z, 1 - m);
-        her.place(back.x, back.z, lerpAngle(toSlot(), back.yaw, m));
-        if (handle) this._hands(cart, ease((k - 0.4) / 0.6));
-      } },
+  _intoCart(getThing, cart, handle, side = 0) {
+    let e = null;
+    const slot = { x: 0, y: 0, z: 0 };
+    const place = (above) => () => {
+      cart.slotWorld(e, slot);
+      return { x: slot.x, y: above ? Math.max(RIM, slot.y) + 0.06 : slot.y + 0.01, z: slot.z, yaw: cart.yaw + e.slot.yaw };
+    };
+    const steps = [
+      this._go(() => {
+        e = getThing();
+        e.flying = true;
+        cart.stow(e);
+        return this._cartStance(cart, e.slot.z, {}, side);
+      }, (m, dt) => this._front(dt)),
+      // Over the basket's rim, turned the way it will lie; down into its place.
+      ...this._move(true, place(true), 0.15, 0.08, 0.45),
+      ...this._move(true, place(false), 0, 0, 0.4),
+      { d: 0, done: () => this._release(cart) },
+      ...this._handBack(0.2),
     ];
+    if (handle) steps.push(...this._toHandle(cart));
+    return steps;
   }
 
-  /** Let go of an item (or a bag) over the cart: it drops into its slot from where it is. */
-  _release(thing, cart) {
-    this.inHand = null;
-    if (!this.hanging.length) this.her.act.holdR = 0;
-    const p = thing.carrier ? thing : thing.unit, yaw = thing.carrier ? thing.yaw : thing.unit.ry;
-    cart.toLocal(p.x, p.y, p.z, _local);
-    thing.cur = { x: _local.x, y: _local.y, z: _local.z, yaw: yaw - cart.yaw };
-    thing.flying = false;
-    cart.moved = true;
+  /** She lets go of what she holds over the cart: it stays where her hand put it, and drops into its place. */
+  _release(cart) {
+    const her = this.her, e = her.held.thing;
+    her.carry();
+    const yaw = her.heldAt(_v);
+    her.letGo();
+    cart.release(e, _v.x, _v.y, _v.z, yaw);
     this.tones.drop();
   }
 
-  /** Back to pushing her cart (if she was) or free. */
-  _after(cart) {
-    const act = this.her.act;
+  /** Steps: back behind the cart's handle (round its corner from beside it), both hands on it (then pushing, see _after). */
+  _toHandle(cart) {
+    return [this._go(() => {
+      cart.pusher(_spot);
+      return { x: _spot.x, z: _spot.z, yaw: cart.yaw, via: this._round(cart, _spot.x, _spot.z) };
+    }, (m) => this._hands(cart, ease((m - 0.6) / 0.4))), { d: 0, done: () => { this._handsOn = cart; } }];
+  }
+
+  /** Back to pushing her cart (if her hands went back on it) or free. */
+  _after() {
+    const act = this.her.act, cart = this._handsOn;
+    this._handsOn = null;
     act.reach = null;
     act.crouch = 0;
-    if (!this.held && !this.inHand) act.holdR = 0;
     this.her.freeze(false);
     if (cart) this.pushing.start(cart);
   }
@@ -511,44 +657,32 @@ export class MallShopping {
   /** The item in her hand into her (parked) cart. */
   putInCart() {
     const cart = this.mine, item = this.held;
+    if (!cart.fits(item.size)) { this.ctx.hud.toast('The cart is full', 'Check out what you have'); return; }
     this.held = null;
     this.her.freeze(true);
-    const her = this.her;
-    this.tl.play(this._intoCart(() => item, cart, { x: her.x, z: her.z, yaw: her.yaw }, false), () => this._after(null));
+    this.tl.play(this._intoCart(() => item, cart, false), () => this._after());
   }
 
-  /** The item in her hand back in its place on the shelf. */
+  /** The item in her hand back in its place on the shelf: carried in, set down exactly where it stood. */
   putBack({ f, u }) {
-    const item = this.held, her = this.her, act = this.ctx.animation.act;
+    const item = this.held, her = this.her, bin = f.kind === 'bin';
     this.held = null;
     her.freeze(true);
-    const x0 = her.x, z0 = her.z, yaw0 = her.yaw;
-    const face = Math.atan2(u.x - x0, u.z - z0);
-    const crouch = Her.crouchFor(u.y + item.size.h), lean = 0.08 + 0.16 * crouch;
-    const hy = u.y + Math.min(0.08, item.size.h * 0.6);
+    const out = bin ? 0.04 : 0.2, up = bin ? 0.16 : 0.04;
     this.tl.play([
-      { d: 0.6, step: (k) => {
-        const m = ease(k);
-        her.place(x0 + Math.sin(face) * lean * m, z0 + Math.cos(face) * lean * m, lerpAngle(yaw0, face, m));
-        act.crouch = crouch * m;
-        her.reachTo(lerp(x0 + Math.sin(face) * 0.3, u.x, m), lerp(1.0, hy, m) + Math.sin(k * Math.PI) * 0.1, lerp(z0 + Math.cos(face) * 0.3, u.z, m), ease(k / 0.4));
-      }, done: () => {
+      this._go(() => this._shelfStance(f, u, {}), (m, dt) => this._front(dt)),
+      // In front of its place, turned the way it stood; then into it.
+      ...this._move(true, () => ({ x: u.x + f.nx * out, y: u.y + up, z: u.z + f.nz * out, yaw: u.ry, rx: u.rx }), 0, 0.06, 0.5),
+      ...this._move(true, () => ({ x: u.x, y: u.y, z: u.z, yaw: u.ry, rx: u.rx }), 0, 0, 0.3),
+      { d: 0, done: () => {
         // Set down in its place: the shelf shows it again, the loose pack goes.
-        this.inHand = null;
+        her.letGo();
         this.goods.release(item.unit);
         this.stock.restore(f, u);
-        act.holdR = 0;
         this.tones.drop();
       } },
-      { d: 0.45, step: (k) => {
-        const m = ease(k);
-        act.crouch = crouch * (1 - m);
-        her.place(x0 + Math.sin(face) * lean * (1 - m), z0 + Math.cos(face) * lean * (1 - m), face);
-        her.reachTo(u.x, hy + 0.15 * m, u.z, 1 - m);
-      } },
-    ], () => this._after(null));
-    // In her palm until it is set down.
-    this.grip(item, item.unit.x, item.unit.y, item.unit.z);
+      ...this._handBack(0.1),
+    ], () => this._after());
   }
 
   /** ✕ in the cart panel: she takes that item out of the cart into her hand (to put it back). */
@@ -558,33 +692,28 @@ export class MallShopping {
     if (!item || this.busy || this.ctx.vehicles.driving) return;
     const pushing = this.pushing.active;
     if (pushing) this.pushing.stop();
-    const her = this.her, act = this.ctx.animation.act;
+    const her = this.her;
     her.freeze(true);
-    const x0 = her.x, z0 = her.z, yaw0 = her.yaw;
-    const pos = cart.toWorld(item.cur.x, item.cur.y, item.cur.z, { x: 0, y: 0, z: 0 });
-    const face = Math.atan2(pos.x - x0, pos.z - z0);
-    const crouch = Her.crouchFor(pos.y + item.size.h) * 0.6;
-    const hy = pos.y + Math.min(0.08, item.size.h * 0.6);
+    const at = { x: 0, y: 0, z: 0 };
+    const top = (above) => () => {
+      cart.toWorld(item.cur.x, item.cur.y, item.cur.z, at);
+      return { x: at.x, y: above ? Math.max(RIM, at.y + item.size.h) + 0.08 : at.y + item.size.h + 0.012, z: at.z };
+    };
     this.tl.play([
-      { d: 0.5, step: (k) => {
-        const m = ease(k);
-        if (pushing) this._hands(cart, 1 - ease(k * 2));
-        her.place(x0, z0, lerpAngle(yaw0, face, m));
-        act.crouch = crouch * m;
-        her.reachTo(pos.x, hy + 0.1 * (1 - m), pos.z, ease((k - 0.2) / 0.8));
-      }, done: () => {
+      this._go(() => this._cartStance(cart, item.cur.z, {}), pushing ? (m) => this._hands(cart, 1 - ease(m * 2.5)) : null),
+      // Over it, down onto its top, and it comes up in her hand.
+      ...this._move(false, top(true), 0.15, 0.05, 0.4),
+      ...this._move(false, top(false), 0, 0, 0.35),
+      { d: 0, done: () => {
         cart.unstow(item);
-        this.grip(item, item.unit.x, item.unit.y, item.unit.z);
+        her.hold(item, at.x, at.y, at.z, cart.yaw + item.cur.yaw);
         this.tones.click();
       } },
-      { d: 0.5, step: (k) => {
-        const m = ease(k);
-        act.crouch = crouch * (1 - m);
-        her.reachTo(lerp(pos.x, x0 + Math.sin(face) * 0.3, m), lerp(hy, 1.0, m) + Math.sin(k * Math.PI) * 0.1, lerp(pos.z, z0 + Math.cos(face) * 0.3, m), 1 - ease((k - 0.5) / 0.5));
-      } },
+      ...this._move(true, () => ({ x: at.x, y: Math.max(RIM, at.y) + 0.12, z: at.z }), 0, 0.02, 0.4),
+      ...this._toSide(),
     ], () => {
       this.held = item;
-      this._after(null);
+      this._after();
       this.ctx.hud.toast(item.p.name, 'Put it back on its shelf, or back in the cart');
     });
   }
@@ -629,6 +758,7 @@ export class MallShopping {
     this.her.rest();
     hud.panel('cart', null);
     this.hanging.length = 0;
+    this.ctx.checkouts = null;
     this.boot.dispose();
     this.checkouts.dispose();
     this.bags.dispose();

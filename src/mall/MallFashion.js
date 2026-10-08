@@ -9,7 +9,7 @@ import { ClothingTill } from './ClothingTill.js';
 import { MirrorView } from './MirrorView.js';
 import { Timeline, clamp, ease, lerp, wrap } from './Timeline.js';
 import { tone } from './Tones.js';
-import { BAG_HAND } from '../player/CharacterAnimation.js';
+import { Her } from './Her.js';
 
 /**
  * Sakura Style, the mall's clothing store (MALL.md, layout.fashion):
@@ -29,25 +29,20 @@ import { BAG_HAND } from '../player/CharacterAnimation.js';
  */
 
 export const MAX_CARRY = 3;
+// Her body's centre from what she reaches for (for something above 1.6 m:
+// REACH_HIGH), and her right shoulder from her centre: arm's reach (m).
+const REACH = 0.36, REACH_HIGH = 0.24, SHOULDER = 0.14;
 const BAG_POOL = 3;
 // The sneakers' heel top (pair space): it sits in her palm when she carries them.
 const HEEL = new Vector3(0, 0.06, -0.125);
-const _a = new Vector3(), _b = new Vector3(), _c = new Vector3(), _d = new Vector3();
+const _c = new Vector3(), _d = new Vector3();
 const _q = new Quaternion();
 const plural = (n) => `${n} item${n > 1 ? 's' : ''}`;
-
-/** World position of a node, with its ancestors' matrices brought up to date first. */
-const _chain = [];
-function worldPos(node, out) {
-  _chain.length = 0;
-  for (let n = node; n; n = n.parent) _chain.push(n);
-  for (let i = _chain.length - 1; i >= 0; i--) _chain[i].computeWorldMatrix(true);
-  return out.copyFrom(node.getAbsolutePosition());
-}
 
 export class MallFashion {
   constructor(ctx) {
     this.ctx = ctx;
+    this.her = new Her(ctx);
     this.timeline = new Timeline();
     this.carried = [];        // [{ id, item, unit, kept, blend }] on hangers in her right hand
     this.bags = [];           // [{ mesh, items }] paid, hanging from her right hand
@@ -155,10 +150,8 @@ export class MallFashion {
       m.position.set(palm.x + rx * 0.015 * i, palm.y + 0.01, palm.z + rz * 0.015 * i);
       m.rotation.set(0, yaw + Math.PI / 2, -s.a * 0.6);
     }
-    // Hangers sit outside the bag handles, each a little further out.
-    let out = this.bags.length ? 0.07 : 0.02;
     for (let i = 0; i < this.carried.length; i++) {
-      const c = this.carried[i];
+      const c = this.carried[i], out = this._out(i);
       let x, y, z, cy, roll = 0, pitch = 0;
       if (c.unit.shape === 'sneakers') {
         // Held by the heels, toes down, the pair along her stride.
@@ -166,12 +159,10 @@ export class MallFashion {
         Quaternion.RotationYawPitchRollToRef(cy, pitch, 0, _q);
         HEEL.rotateByQuaternionToRef(_q, _c);
         x = palm.x + rx * (out + 0.04) - _c.x; y = palm.y - _c.y; z = palm.z + rz * (out + 0.04) - _c.z;
-        out += 0.12;
       } else {
         // The hook through her fingers, the garment's face to her right.
         cy = yaw - Math.PI / 2 + i * 0.07; roll = s.a * (1 - i * 0.15);
         x = palm.x + rx * out; y = palm.y + 0.015; z = palm.z + rz * out;
-        out += 0.04;
       }
       const b = c.blend;
       if (b) {
@@ -183,6 +174,24 @@ export class MallFashion {
       }
       this.set.place(c.unit, x, y, z, cy, roll, pitch);
     }
+  }
+
+  /** How far out along her fingers the i-th thing she carries hangs: hangers outside the bag handles, each further out. */
+  _out(i) {
+    let out = this.bags.length ? 0.07 : 0.02;
+    for (let k = 0; k < i; k++) out += this.carried[k].unit.shape === 'sneakers' ? 0.12 : 0.04;
+    return out;
+  }
+
+  /**
+   * Where her palm goes for the i-th thing she carries (a hanger's hook, a
+   * pair's heels) to be at (x, y, z), her facing yaw: so a garment comes off
+   * its hook (or goes back on) where her hand is, not across the air.
+   */
+  palmFor(i, shoes, x, y, z, yaw) {
+    const out = this._out(i), rx = -Math.cos(yaw), rz = Math.sin(yaw);
+    if (shoes) return { x: x - rx * (out + 0.04), y: y + 0.06, z: z - rz * (out + 0.04) };
+    return { x: x - rx * out, y: y - 0.015, z: z - rz * out };
   }
 
   /** Units easing from where they were to a hook, the counter, the bag. */
@@ -230,17 +239,20 @@ export class MallFashion {
   }
 
   /** Her palm (between the wrist and the knuckles), world space. */
-  palm(out) {
-    const ch = this.ctx.character;
-    const hand = ch.bone('rightHand'), mid = ch.bone('rightMiddleProximal');
-    if (!hand) return out.copyFrom(this.ctx.player.position);
-    const H = worldPos(hand, _a), M = mid ? worldPos(mid, _b) : _b.copyFrom(H);
-    return Vector3.LerpToRef(H, M, 0.75, out);
-  }
+  palm(out) { return this.her.palm(out); }
 
-  /** Where the carry pose holds her right hand (CharacterAnimation's BAG_HAND), world space. */
-  handHome(out) {
-    return Vector3.TransformCoordinatesFromFloatsToRef(BAG_HAND[0], BAG_HAND[1], BAG_HAND[2], this.ctx.character.root.getWorldMatrix(), out);
+  /**
+   * A step: she steps up to within arm's reach of (x, y, z), facing it, the
+   * point to her right hand's side (from where `from` is, or she is); closer
+   * for what hangs high (her arm reaches up less far out).
+   */
+  stepUp(x, y, z, from = null) {
+    const her = this.her, reach = y > 1.6 ? REACH_HIGH : REACH;
+    return her.goTo(() => {
+      const fx = from?.x ?? her.x, fz = from?.z ?? her.z;
+      const yaw = Math.atan2(x - fx, z - fz), sx = Math.sin(yaw), sz = Math.cos(yaw);
+      return { x: x - sx * reach + Math.cos(yaw) * SHOULDER, z: z - sz * reach - Math.sin(yaw) * SHOULDER, yaw };
+    });
   }
 
   /** Turn her from yaw0 to yaw as k goes 0 → 1. */
@@ -251,37 +263,42 @@ export class MallFashion {
   }
 
   /**
-   * Her right hand from where it is to `to` ({ x, y, z }) and back: steps
-   * for a reach (`act.reach`), with `at` run when it arrives.
+   * Her right hand from where it is to `to` ({ x, y, z }: where her palm
+   * goes) and back: steps for a reach (`act.reach`), with `at` run when it
+   * arrives. She crouches (bends in) as far as it takes (at least `crouch`). Back to her side when she carries something (the carry pose's
+   * wrist point, where act.bag takes over), else down to rest.
    */
   reachSteps(to, at, { out = 0.5, back = 0.45, lift = 0.06, crouch = 0, turn = null } = {}) {
-    const act = this.ctx.animation.act;
-    const reach = { x: 0, y: 0, z: 0, w: 1 }, from = { x: 0, y: 0, z: 0 };
+    const act = this.ctx.animation.act, her = this.her;
+    const from = { x: 0, y: 0, z: 0 };
+    let c = 0;
     return [
       { d: out, step: (k, dt, first) => {
         if (first) {
-          const h = this.handHome(_d);
-          from.x = h.x; from.y = h.y; from.z = h.z;
-          if (!this.handsFull) { this.palm(_d); from.x = _d.x; from.y = _d.y; from.z = _d.z; reach.w = 0; }
-          act.reach = reach; this.handFree = true;
+          if (!act.reach) her.reachFromHand();
+          her.palm(_d);
+          from.x = _d.x; from.y = _d.y; from.z = _d.z;
+          this.handFree = true;
           if (turn) turn.yaw0 = this.ctx.player.yaw;
+          c = Math.max(crouch, her.crouchTo(to.x, to.y, to.z));
         }
         const m = ease(k);
         if (turn) this.turn(turn.yaw0, turn.yaw, k);
-        if (reach.w < 1) reach.w = m;
-        reach.x = lerp(from.x, to.x, m); reach.y = lerp(from.y, to.y, m) + Math.sin(m * Math.PI) * lift; reach.z = lerp(from.z, to.z, m);
-        act.crouch = crouch * m;
+        her.palmTo(lerp(from.x, to.x, m), lerp(from.y, to.y, m) + Math.sin(m * Math.PI) * lift, lerp(from.z, to.z, m), 1);
+        act.crouch = c * m;
       } },
-      { d: 0.1, done: at },
+      // The hand settles on it (the arm's solve lags its target by a frame).
+      { d: 0.12, step: () => her.palmTo(to.x, to.y, to.z, 1), done: at },
       { d: back, step: (k, dt, first) => {
-        if (first) { from.x = reach.x; from.y = reach.y; from.z = reach.z; }
+        const r = her.reach;
+        if (first) { from.x = r.x; from.y = r.y; from.z = r.z; }
         const m = ease(k);
         if (this.handsFull) {
           // Back to the carry pose's point, where the reach hands over to it.
-          const h = this.handHome(_d);
-          reach.x = lerp(from.x, h.x, m); reach.y = lerp(from.y, h.y, m) + Math.sin(m * Math.PI) * lift; reach.z = lerp(from.z, h.z, m);
-        } else reach.w = 1 - m;
-        act.crouch = crouch * (1 - m);
+          her.side(_d);
+          her.reachTo(lerp(from.x, _d.x, m), lerp(from.y, _d.y, m) + Math.sin(m * Math.PI) * lift, lerp(from.z, _d.z, m), 1);
+        } else her.reachTo(from.x, from.y + 0.1 * m, from.z, 1 - m);
+        act.crouch = c * (1 - m);
       }, done: () => {
         act.reach = null; act.crouch = 0;
         this.handFree = false;
@@ -344,21 +361,20 @@ export class MallFashion {
   /** Reach for the garment on that hook, lift it off the rail, bring it to her side. */
   take(s) {
     if (!s?.unit || this.carried.length >= MAX_CARRY || this.busy) return;
-    const { player } = this.ctx;
-    player.hold = true;
+    const her = this.her;
+    her.freeze(true);
     const id = s.item, unit = s.unit;
-    // Low shelves: she crouches instead of over-stretching.
-    const crouch = clamp((1.0 - s.y) / 0.7, 0, 1);
-    // The hand closes on the hanger's neck (or the shoes' heels) just below the hook.
-    const to = { x: s.x, y: s.shoes ? s.y + 0.09 : s.y - 0.05, z: s.z };
-    const turn = { yaw: Math.atan2(s.x - player.position.x, s.z - player.position.z) };
-    this.timeline.play(this.reachSteps(to, () => {
-      s.unit = null;
-      this.attach(id, unit);
-      this._click();
-    }, { crouch, turn, lift: 0.04 }), () => {
-      player.hold = false;
-    });
+    // Her hand closes on the hanger's hook (the shoes' heels) where it will hang in her hand.
+    const to = { x: 0, y: 0, z: 0 };
+    this.timeline.play([
+      this.stepUp(s.x, s.y, s.z),
+      { d: 0, done: () => Object.assign(to, this.palmFor(this.carried.length, !!s.shoes, s.x, s.y, s.z, her.yaw)) },
+      ...this.reachSteps(to, () => {
+        s.unit = null;
+        this.attach(id, unit);
+        this._click();
+      }, { lift: 0.04 }),
+    ], () => her.freeze(false));
   }
 
   /** ✕ in the panel: walk to the nearest free hook of its kind and hang it back. */
@@ -370,25 +386,30 @@ export class MallFashion {
     if (!s) { hud.toast('No free hook', `The ${c.item.name} stays with you`); return; }
     const stand = this.racks.stand(s, player.position, { x: 0, z: 0, yaw: 0 });
     const walk = { x: stand.x, z: stand.z, done: () => { walk.over = true; } };
-    const turn = { yaw: stand.yaw };
     this.timeline.play([
       { until: () => walk.over, step: (k, dt, first) => { if (first) player.autoWalk = walk; } },
       { d: 0, done: () => {
-        player.hold = true;
+        this.her.freeze(true);
         // Something in the way: she keeps it.
         if (Math.hypot(s.x - player.position.x, s.z - player.position.z) > 1.3) {
           this.timeline.clear();
-          player.hold = false;
+          this.her.freeze(false);
           hud.toast('Can’t reach the rack', `The ${c.item.name} stays with you`);
           return;
         }
-        this.timeline.play(this.reachSteps({ x: s.x, y: s.y - 0.05, z: s.z }, () => {
-          this.drop(c);
-          s.item = c.id;
-          s.unit = c.unit;
-          this.settle(c.unit, s.x, s.y, s.z, s.yaw, { d: 0.2 });
-          this._click();
-        }, { turn, lift: 0.08 }), () => { player.hold = false; });
+        // Her hand brings its hook onto the rail; it turns on its hook to hang square.
+        const to = { x: 0, y: 0, z: 0 };
+        this.timeline.play([
+          this.stepUp(s.x, s.y, s.z),
+          { d: 0, done: () => Object.assign(to, this.palmFor(this.carried.indexOf(c), c.unit.shape === 'sneakers', s.x, s.y, s.z, this.her.yaw)) },
+          ...this.reachSteps(to, () => {
+            this.drop(c);
+            s.item = c.id;
+            s.unit = c.unit;
+            this.settle(c.unit, s.x, s.y, s.z, s.yaw, { d: 0.2 });
+            this._click();
+          }, { lift: 0.08 }),
+        ], () => { this.her.freeze(false); });
       } },
     ]);
   }
@@ -458,12 +479,12 @@ export class MallFashion {
   }
 
   dispose() {
-    const { animation, player, shops, graphics, hud } = this.ctx;
+    const { player, shops, graphics, hud } = this.ctx;
     this.session?.abort();
     this.session = null;
     this.timeline.clear();
-    const act = animation.act;
-    act.reach = null; act.bag = 0; act.holdR = 0; act.crouch = 0;
+    this.her.rest();
+    player.hold = false;
     player.autoWalk = null;
     shops.previewOutfit(null);
     hud.panel('fashion', null);

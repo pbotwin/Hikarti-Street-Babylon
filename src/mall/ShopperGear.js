@@ -136,7 +136,15 @@ export class ShopperGear {
     return true;
   }
 
-  /** The good arrives in its container. */
+  /** A hand lets go of the good above its place (aim()): into a cart it drops from where it is; into a basket. */
+  letGo(g) {
+    const b = g.box;
+    if (!b.cart) { this.land(g); return; }
+    g.flying = false;
+    b.cart.release(g.entry, g.unit.x, g.unit.y, g.unit.z, g.unit.ry);
+  }
+
+  /** The good is in its container (put straight in its place). */
   land(g) {
     const b = g.box;
     g.flying = g.entry.flying = false;
@@ -149,7 +157,7 @@ export class ShopperGear {
   unstow(i) {
     const b = this.boxes[i], g = b.goods.pop();
     if (!g) return null;
-    b.cart?.unstow(g.entry, false);
+    b.cart?.unstow(g.entry);
     g.box = null;
     return g;
   }
@@ -159,7 +167,7 @@ export class ShopperGear {
     const b = g.box;
     if (b) {
       b.goods.splice(b.goods.indexOf(g), 1);
-      b.cart?.unstow(g.entry, false);
+      b.cart?.unstow(g.entry);
       g.box = null;
     }
     g.set.release(g.unit);

@@ -1,5 +1,5 @@
 import { Vector3 } from '@babylonjs/core';
-import { Her, lerpAngle } from './Her.js';
+import { Her } from './Her.js';
 import { ease, lerp } from './Timeline.js';
 
 /**
@@ -13,9 +13,9 @@ import { ease, lerp } from './Timeline.js';
  */
 const OPEN_Z = -2.05;            // car space: where she stands to open / load (behind the bumper)
 const BACK_Z = -3.25;            // clear of the lid's swing (closing)
+const RIM = 0.99;                // a cart basket's top rim, which a bag is lifted over
 const SLOTS = [[0.34, -1.38], [0, -1.38], [-0.34, -1.38], [0.34, -1.12], [0, -1.12], [-0.34, -1.12]];   // bags on the boot floor
-const _a = [0, 0, 0], _w = new Vector3(), _h = new Vector3();
-const _p = { x: 0, z: 0 };
+const _a = [0, 0, 0], _w = new Vector3(), _h = new Vector3(), _o = new Vector3(), _ax = new Vector3(), _ay = new Vector3(), _az = new Vector3();
 const NONE = [];
 
 export class Boot {
@@ -24,7 +24,7 @@ export class Boot {
     this.ctx = shop.ctx;
     this.car = null;
     this.k = 0;              // lid 0 shut .. 1 open
-    this.loaded = [];        // bags in the boot: { bag, slot }
+    this.loaded = [];        // bags in the boot: { e, x, y, z, yaw } (car space, where she set them down)
     this.finished = false;
     const P = (label, icon, priority, run) => ({ label, icon, priority, distance: 0, run });
     this._prompts = {
@@ -46,6 +46,14 @@ export class Boot {
     return this.car.localToWorld(_a, out);
   }
 
+  /** A world point in car space (the inverse of _world: the same frame, the body's), into out. */
+  _toCar(p, out) {
+    const o = this._world(0, 0, 0, _o), x = this._world(1, 0, 0, _ax).subtractInPlace(o);
+    const y = this._world(0, 1, 0, _ay).subtractInPlace(o), z = this._world(0, 0, 1, _az).subtractInPlace(o);
+    const dx = p.x - o.x, dy = p.y - o.y, dz = p.z - o.z;
+    return out.set(dx * x.x + dy * x.y + dz * x.z, dx * y.x + dy * y.y + dz * y.z, dx * z.x + dy * z.y + dz * z.z);
+  }
+
   /** The lid's handle (its lower edge) in the world with the lid at k. */
   _handle(k, out) {
     const b = this.car.boot, a = k * b.open;
@@ -64,9 +72,9 @@ export class Boot {
     if (!car) return;
     car.locked = shop.pushing.active || this.k > 0.01 || shop.busy;
     // The bags ride in the boot.
-    for (const { e, slot } of this.loaded) {
-      this._world(slot[0], car.boot.floor.y, slot[1], _w);
-      e.put(_w.x, _w.y, _w.z, car.yaw + Math.PI / 2);
+    for (const b of this.loaded) {
+      this._world(b.x, b.y, b.z, _w);
+      b.e.put(_w.x, _w.y, _w.z, car.yaw + b.yaw);
     }
     if (!this.finished && v.active === car && v.phase === 'drive') {
       const e = this.ctx.layout.exit;
@@ -102,28 +110,30 @@ export class Boot {
 
   /** Walk to car-space (0, z) behind the car, then `then` (frozen, facing the car). */
   _goBehind(z, x, then) {
-    const shop = this.shop;
+    const shop = this.shop, cart = shop.mine;
     if (shop.pushing.active) {
       // Let go of the cart first.
-      const cart = shop.mine;
       shop.pushing.stop();
       shop.her.freeze(true);
-      shop.tl.play([{ d: 0.3, step: (k) => shop._hands(cart, 1 - ease(k)) }], () => {
-        this.ctx.animation.act.hands = null;
+      shop.tl.play(shop._handsOff(cart), () => {
         shop.her.freeze(false);
         this._goBehind(z, x, then);
       });
       return;
     }
-    this._world(x, 0, z, _w);
-    shop.walkTo(_w.x, _w.z, () => {
+    // The last steps scripted (round her cart if it stands in the way); a walk there first from afar.
+    const near = () => {
       shop.her.freeze(true);
-      const her = shop.her, yaw0 = her.yaw, x0 = her.x, z0 = her.z;
-      this._world(x, 0, z, _w);
-      const tx = _w.x, tz = _w.z;
-      shop.tl.play([{ d: 0.35, step: (k) => her.place(lerp(x0, tx, ease(k)), lerp(z0, tz, ease(k)), lerpAngle(yaw0, this.car.yaw, ease(k))) }], then);
-    });
+      shop.tl.play([shop._go(() => {
+        this._world(x, 0, z, _w);
+        return { x: _w.x, z: _w.z, yaw: this.car.yaw, via: cart ? shop._round(cart, _w.x, _w.z) : null };
+      })], then);
+    };
+    this._world(x, 0, z, _w);
+    if (Math.hypot(_w.x - shop.her.x, _w.z - shop.her.z) > 2.5) shop.walkTo(_w.x, _w.z, near);
+    else near();
   }
+
 
   /** Unlatch by the handle, lift a little, step back as the struts take it up. */
   open() {
@@ -135,19 +145,19 @@ export class Boot {
         { d: 0.4, step: (k) => {
           this._handle(0, _h);
           act.crouch = crouch * ease(k);
-          her.reachTo(_h.x, _h.y + 0.02, _h.z, ease(k));
+          her.palmTo(_h.x, _h.y + 0.02, _h.z, ease(k));
         }, done: () => shop.tones.click() },
         { d: 0.35, step: (k) => {
           this._setLid(0.09 * ease(k));
           this._handle(this.k, _h);
           act.crouch = crouch * (1 - ease(k));
-          her.reachTo(_h.x, _h.y + 0.02, _h.z, 1);
+          her.palmTo(_h.x, _h.y + 0.02, _h.z, 1);
         }, done: () => { x0 = her.x; z0 = her.z; this._world(0, 0, BACK_Z + 0.15, _w); } },
         // Struts: slow off the latch, quick through the middle, easing to the stop.
         { d: 1.3, step: (k) => {
           this._setLid(0.09 + 0.91 * ease(Math.min(1, k * 1.05)) + Math.sin(Math.min(1, k * 1.05) * Math.PI) * 0.02);
           this._handle(this.k, _h);
-          her.reachTo(_h.x, _h.y + 0.02, _h.z, 1 - ease(k / 0.25));
+          her.palmTo(_h.x, _h.y + 0.02, _h.z, 1 - ease(k / 0.25));
           const m = ease(k / 0.5);
           her.place(lerp(x0, _w.x, m), lerp(z0, _w.z, m), this.car.yaw);
         }, done: () => { this._setLid(1); shop.tones.lid(); } },
@@ -166,98 +176,80 @@ export class Boot {
     next();
   }
 
-  /** One bag: to the cart, take it by the handles, carry it round, lift it in, set it down. */
+  /** One bag: to the cart, take it by the handles, lift it out, carry it round, set it in the boot. */
   _loadOne(e, then) {
-    const shop = this.shop, her = shop.her, act = this.ctx.animation.act, cart = shop.mine;
-    // Beside the cart where the bag is, on the side nearer the car.
-    this._world(0, 0, OPEN_Z, _w);
-    const side = (cart.toLocal(_w.x, 0, _w.z, { x: 0, y: 0, z: 0 }).x > 0 ? 1 : -1);
-    cart.toWorld(side * 0.62, 0, e.cur.z, _p);
-    const go = () => shop.walkTo(_p.x, _p.z, () => {
-      her.freeze(true);
-      const yaw0 = her.yaw, b = { x: e.x, y: e.y, z: e.z };
-      const slot = SLOTS[this.loaded.length];
-      shop.tl.play([
-        { d: 0.5, step: (k) => {
-          her.place(her.x, her.z, lerpAngle(yaw0, Math.atan2(b.x - her.x, b.z - her.z), ease(k)));
-          act.crouch = 0.3 * ease(k);
-          her.reachTo(b.x, b.y + e.handle, b.z, ease((k - 0.2) / 0.8));
-        }, done: () => {
-          cart.unstow(e);
-          shop.grip(e, b.x, b.y, b.z);
-          shop.tones.click();
-        } },
-        // Lift it out and let it hang at her side.
-        { d: 0.45, step: (k) => {
-          act.crouch = 0.3 * (1 - ease(k));
-          her.reachTo(b.x, b.y + e.handle + 0.25 * ease(k), b.z, 1 - ease(k));
-          act.bag = ease(k);
-        }, done: () => {
-          her.freeze(false);
-          this._world(slot[0] * 0.6, 0, OPEN_Z, _w);
-          shop.walkTo(_w.x, _w.z, () => this._setIn(e, slot, then));
-        } },
-      ]);
-    });
-    if (shop.pushing.active) this._goBehind(OPEN_Z, 0, go); else go();
+    const shop = this.shop, her = shop.her, cart = shop.mine;
+    const pushing = shop.pushing.active;
+    if (pushing) shop.pushing.stop();
+    her.freeze(true);
+    shop.tl.play([
+      ...(pushing ? shop._handsOff(cart) : []),
+      shop._go(() => shop._cartStance(cart, e.cur.z, {})),
+      ...shop._move(false, () => ({ x: e.x, y: Math.max(RIM, e.y + e.handle) + 0.06, z: e.z }), 0.1, 0.04, 0.4),
+      ...shop._move(false, () => ({ x: e.x, y: e.y + e.handle, z: e.z }), 0, 0, 0.3),
+      { d: 0, done: () => {
+        cart.unstow(e);
+        her.hold(e, e.x, e.y, e.z, e.yaw);
+        shop.tones.click();
+      } },
+      // Lifted out over the side, then hanging at her side as she walks.
+      ...shop._move(true, () => ({ x: e.x, y: RIM + 0.04, z: e.z }), 0, 0.03, 0.4),
+      ...shop._toSide(),
+      // Round the cart to the back of the car.
+      shop._go(() => {
+        this._world(SLOTS[this.loaded.length][0] * 0.6, 0, OPEN_Z, _w);
+        return { x: _w.x, z: _w.z, yaw: this.car.yaw, via: shop._round(cart, _w.x, _w.z) };
+      }),
+    ], () => this._setIn(SLOTS[this.loaded.length], then));
   }
 
   /** The bags she carries in her hand (from the clothing store) straight into the open boot. */
   stowCarried() {
     const shop = this.shop;
     const next = () => {
-      const e = shop.nextCarried();
-      if (!e || this.loaded.length >= SLOTS.length) { this._done(); return; }
-      this._setIn(e, SLOTS[this.loaded.length], next);
+      if (!shop.nextCarried() || this.loaded.length >= SLOTS.length) { this._done(); return; }
+      this._setIn(SLOTS[this.loaded.length], next);
     };
     this._goBehind(OPEN_Z, 0, next);
   }
 
-  /** At the back of the car with a bag in her hand: lift it over the sill and set it on the boot floor. */
-  _setIn(e, slot, then) {
-    const shop = this.shop, her = shop.her, act = this.ctx.animation.act, car = this.car;
+  /**
+   * At the back of the car with a bag in her hand: she faces the boot, lifts
+   * it over the sill, lowers it onto the boot floor and lets go; it rides
+   * there (in the car's frame) where she set it down.
+   */
+  _setIn(slot, then) {
+    const shop = this.shop, her = shop.her, car = this.car;
     her.freeze(true);
-    const yaw0 = her.yaw;
-    let from = null;
+    const at = () => this._world(slot[0], car.boot.floor.y, slot[1], new Vector3());
     shop.tl.play([
-      { d: 0.75, step: (k, dt, first) => {
-        if (first) {
-          shop.her.palm(_h);
-          from = { x: _h.x, y: _h.y, z: _h.z };
-        }
-        const m = ease(k);
-        her.place(her.x, her.z, lerpAngle(yaw0, car.yaw, ease(k * 2)));
-        act.bag = 1 - ease(k * 3);
-        this._world(slot[0], car.boot.floor.y, slot[1], _w);
-        act.crouch = 0.55 * Math.sin(k * Math.PI / 2);
-        her.reachTo(lerp(from.x, _w.x, m), lerp(from.y, _w.y + e.handle, m) + Math.sin(k * Math.PI) * 0.3, lerp(from.z, _w.z, m), ease(k / 0.3));
-      }, done: () => {
-        shop.inHand = null;
-        act.holdR = 0;
-        this.loaded.push({ e, slot });
+      shop._go(() => ({ x: her.x, z: her.z, yaw: car.yaw })),
+      ...shop._move(true, () => { const p = at(); p.y += 0.32; return p; }, 0.2, 0.2, 0.6),
+      ...shop._move(true, () => at(), 0, 0, 0.4),
+      { d: 0, done: () => {
+        her.carry();
+        const yaw = her.heldAt(_h), e = her.letGo();
+        this._toCar(_h, _w);
+        this.loaded.push({ e, x: _w.x, y: _w.y, z: _w.z, yaw: yaw - car.yaw });
         shop.tones.drop();
       } },
-      { d: 0.45, step: (k) => {
-        act.crouch = 0.55 * (1 - ease(k));
-        this._world(slot[0], car.boot.floor.y, slot[1], _w);
-        her.reachTo(_w.x, _w.y + e.handle + 0.2 * k, _w.z, 1 - ease(k));
-      } },
-    ], () => { act.reach = null; act.crouch = 0; her.freeze(false); then(); });
+      ...shop._handBack(0.2),
+    ], () => { her.freeze(false); then(); });
   }
 
   /** Reach up to the open lid's edge, pull it down, let it drop shut. */
   close() {
-    const shop = this.shop, her = shop.her, act = this.ctx.animation.act;
+    const shop = this.shop, her = shop.her;
     this._goBehind(BACK_Z, 0, () => {
       shop.tl.play([
         { d: 0.45, step: (k) => {
           this._handle(1, _h);
-          her.reachTo(_h.x, _h.y - 0.02, _h.z, ease(k));
+          her.palmTo(_h.x, _h.y - 0.02, _h.z, ease(k));
         } },
         { d: 0.8, step: (k) => {
           this._setLid(1 - 0.55 * ease(k));
           this._handle(this.k, _h);
-          her.reachTo(_h.x, _h.y - 0.02, _h.z, 1);
+          her.palmTo(_h.x, _h.y - 0.02, _h.z, 1);
         } },
         // Let go: it falls the rest of the way, faster as it goes.
         { d: 0.32, step: (k) => {
@@ -271,7 +263,6 @@ export class Boot {
   _done() {
     const act = this.ctx.animation.act;
     act.reach = null; act.crouch = 0; act.bag = 0;
-    if (!this.shop.inHand) act.holdR = 0;
     this.shop.her.freeze(false);
   }
 
