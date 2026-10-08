@@ -65,7 +65,7 @@ export class ClothingRacks {
 
   /** Make the garments (GarmentSet.add) for every slot; call before the set's build(). */
   stock(set, byId) {
-    for (const s of this.slots) s.unit = set.add(byId[s.item].garment, byId[s.item].color, s.scale);
+    for (const s of this.slots) s.unit = set.add(byId[s.item].garment, byId[s.item].color, s.scale, byId[s.item].style);
   }
 
   /** Hang / stand a unit at its slot. */

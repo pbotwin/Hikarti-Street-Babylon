@@ -1,7 +1,8 @@
 import { Color3, MaterialPluginBase, Matrix, Mesh, PBRMaterial, Quaternion, Vector3, VertexData } from '@babylonjs/core';
 import { ITEMS } from '../gameplay/ShopData.js';
 import { GROCERIES, GROCERY_BY_ID } from '../mall/MallCatalog.js';
-import { CELLS, PRINT_V, disposeGroceryAtlas, groceryAtlas, labelAtlas, labelFor } from './Labels.js';
+import { CELLS, labelAtlas, labelFor } from './Labels.js';
+import { LAYOUTS, PRINT_V, disposeGroceryAtlas, groceryAtlas } from './GroceryPrint.js';
 
 /**
  * Product models for the walk-in shops: one small shared geometry per shape
@@ -15,11 +16,13 @@ import { CELLS, PRINT_V, disposeGroceryAtlas, groceryAtlas, labelAtlas, labelFor
  * draws with one shader.
  *
  * The mall's groceries (MallCatalog) are real-sized packs (PACKS: carton,
- * bottle, can, tub, block, bag, box, jar, loaf, …) printed with their own
- * brand and name from the grocery atlas, and a shelf-edge price tag; they
- * draw with a second material (same shader, that atlas) made per trip.
- * Their neutral parts (caps, lids, trays, cans' silver) keep their own grey
- * whatever the pack's colour: a vertex shade of 2 + g draws grey g.
+ * PET bottle, can, tub, pillow bag, box, jar, loaf, fruit, …) printed from
+ * the grocery atlas (GroceryPrint: each part maps to a region of its
+ * product's cell: a can's wrap, a carton's sides, a fruit's skin), and a
+ * shelf-edge price tag; they draw with a second material (same shader,
+ * that atlas) made per trip. Parts that aren't the pack's colour say what
+ * they are in their vertex shade (see "grocery packs"): grey pulp, a drink
+ * seen through clear PET or glass, clear plastic, metal.
  */
 
 /** How each shop item looks on the shelf. */
@@ -195,112 +198,232 @@ export const SHAPE_W = { bottle: 0.09, can: 0.08, cup: 0.11, onigiri: 0.13, bun:
   tee: 0.44, folded: 0.33, shoes: 0.26, dye: 0.1, bag: 0.17, carton: 0.14, jar: 0.1, spine: 0.04 };
 
 // ---------------------------------------------------------------- grocery packs
-/** Grey g (linear) whatever the instance colour (see the doc comment). */
+/**
+ * Grocery pack surfaces. The vertex shade picks how a part is drawn
+ * (PrintPlugin, PRINT_NEUTRAL): below 2 it scales the pack colour; 2 + g is
+ * grey g whatever the colour (pulp trays); 3 is the pack colour seen as a
+ * drink through clear PET or glass, 4 empty clear plastic (both fresnel-lit,
+ * +0.5: moulded ridges); 5 + g is metal of brightness g (can ends, lids).
+ */
 const grey = (g) => 2 + g;
-const SILVER = grey(0.55), WHITE = grey(0.8), CLEAR = grey(0.62);
-/** A printed pack part: its uvs into the cell's print area (above the price tag). */
-const pack = (vd, x, y, z, ry = 0, rx = 0) => {
-  const p = part(vd, 1, x, y, z, ry, rx, 0, true);
-  for (let i = 1; i < p.uvs2.length; i += 2) p.uvs2[i] = 1 - PRINT_V + PRINT_V * p.uvs2[i];
+const LIQUID = 3, LIQUID_RIDGED = 3.5, CLEAR = 4;
+const metal = (g) => 5 + g;
+const PULP = grey(0.78);
+
+/** A printed pack part: its uvs into a print region (GroceryPrint LAYOUTS) of the cell, above the price tag. */
+const reg = (vd, region, x, y, z, ry = 0, rx = 0, rz = 0) => {
+  const p = part(vd, 1, x, y, z, ry, rx, rz, true);
+  const [u0, v0, w, h] = region.r;
+  for (let i = 0; i < p.uvs2.length; i += 2) {
+    p.uvs2[i] = u0 + w * p.uvs2[i];
+    p.uvs2[i + 1] = 1 - PRINT_V * (v0 + h - h * p.uvs2[i + 1]);
+  }
+  return p;
+};
+/** A part in one printed colour: every uv at its region's centre (cap tops, ties). */
+const flat = (vd, region, x, y, z, ry = 0, rx = 0) => {
+  const p = reg(vd, region, x, y, z, ry, rx);
+  const [u0, v0, w, h] = region.r;
+  for (let i = 0; i < p.uvs2.length; i += 2) { p.uvs2[i] = u0 + w / 2; p.uvs2[i + 1] = 1 - PRINT_V * (v0 + h / 2); }
   return p;
 };
 const UP = -Math.PI / 2;   // rx turning a +z print to face up
 // Pack parts are open-ended (bottoms are never seen; tops close only where they show).
 const side = (rt, rb, h, n) => VertexData.CreateCylinder({ diameterTop: rt * 2, diameterBottom: rb * 2, height: h, tessellation: n, cap: Mesh.NO_CAP });
 const topped = (rt, rb, h, n) => VertexData.CreateCylinder({ diameterTop: rt * 2, diameterBottom: rb * 2, height: h, tessellation: n, cap: Mesh.CAP_END });
-const ball = (r) => VertexData.CreateIcoSphere({ radius: r, subdivisions: 1, flat: false });
+/** A flat round top facing up (a lid's print, a cap's top), uv over its square. */
+function disc(r, n) {
+  const positions = [0, 0, 0], uvs = [0.5, 0.5], indices = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    positions.push(Math.cos(a) * r, 0, Math.sin(a) * r);
+    uvs.push(0.5 + Math.cos(a) / 2, 0.5 - Math.sin(a) / 2);
+    if (i) indices.push(0, i, i + 1);
+  }
+  return Object.assign(new VertexData(), { positions, uvs, indices, normals: positions.map((_, k) => (k % 3 === 1 ? 1 : 0)) });
+}
 
 /**
- * Grocery packs, real sizes in metres: each stands on y = 0 with its print
- * facing +z (the aisle). Round packs wrap their print (painted twice per
- * cell). Kept lean (16-90 triangles): a stocked supermarket shows
- * thousands of them up close.
+ * A surface from a (cols × rows) grid: at(u, v) gives the point for u
+ * (0..1, left to right as seen from outside) and v (0..1, bottom to top);
+ * uv = (u, v). Wound like the builders (seen from outside).
+ */
+function sheet(cols, rows, at) {
+  const positions = [], uvs = [], indices = [];
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) { positions.push(...at(i / cols, j / rows)); uvs.push(i / cols, j / rows); }
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const bl = j * (cols + 1) + i, br = bl + 1, tl = bl + cols + 1, tr = tl + 1;
+    indices.push(tl, tr, bl, bl, tr, br);
+  }
+  const normals = [];
+  VertexData.ComputeNormals(positions, indices, normals);
+  return Object.assign(new VertexData(), { positions, normals, uvs, indices });
+}
+
+/** A low ball with a wrapping uv (u round from the front's left, v bottom to top), squashed by sy. */
+const globe = (r, lon, lat, sy = 1) => sheet(lon, lat, (u, v) => {
+  const a = (u + 0.5) * Math.PI * 2, b = Math.PI * v, s = Math.sin(b) * r;
+  return [Math.cos(-a) * s, -Math.cos(b) * r * sy, Math.sin(-a) * s];
+});
+
+/** A pillow-bag face (w × h, bulging t at the middle): front (+z) or back. */
+const pillow = (w, h, t, dir) => sheet(3, 4, (u, v) => {
+  const x = (u - 0.5) * w * dir, bx = 1 - (2 * u - 1) ** 2, by = 1 - (2 * v - 1) ** 2;
+  return [x * (1 - 0.06 * (1 - by)), v * h, dir * t * Math.sqrt(bx * by)];
+});
+
+/** A banana: a curved tube along +x (u along it, v round), tapered to its tips. */
+const finger = (len, r, bend) => sheet(4, 4, (u, v) => {
+  const s = u - 0.5, a = v * Math.PI * 2, k = Math.sqrt(Math.max(0.05, 1 - (2 * s) ** 4)) * r;
+  return [s * len, bend * (1 - 4 * s * s) + Math.cos(a) * k, -Math.sin(a) * k];
+});
+
+/** Round section → rounded square (a 2 L tea bottle, a detergent bottle). */
+function squircle(vd, sx = 1, sz = 1) {
+  const p = vd.positions, n = vd.normals;
+  for (let i = 0; i < p.length; i += 3) {
+    const a = Math.atan2(p[i + 2], p[i]);
+    const k = 1 / Math.pow(Math.abs(Math.cos(a)) ** 4 + Math.abs(Math.sin(a)) ** 4, 0.25);
+    p[i] *= k * sx; p[i + 2] *= k * sz;
+  }
+  // Normals from the warped shape (flat faces stay flat).
+  VertexData.ComputeNormals(p, vd.indices, n);
+  return vd;
+}
+
+const L = LAYOUTS;
+/** A bottle's cap: ridged printed side in the cap colour, a top in the same. */
+const capOf = (l, r, h, y) => [reg(side(r, r, h, 8), l.cap, 0, y + h / 2, 0), flat(disc(r, 8), l.capTop, 0, y + h, 0)];
+
+/**
+ * Grocery packs, real sizes in metres: each stands on y = 0 with its front
+ * facing +z (the aisle). Detail is in the print (GroceryPrint) and the
+ * surface codes above; shapes stay lean (≈20-200 triangles): a stocked
+ * supermarket shows thousands up close.
  */
 const PACKS = {
   can: () => merge([                                                    // 350 ml
-    pack(side(0.0332, 0.03, 0.112, 10), 0, 0.056, 0),
-    part(side(0.028, 0.0332, 0.01, 10), SILVER, 0, 0.117, 0),
-    part(topped(0.028, 0.028, 0.004, 10), SILVER, 0, 0.124, 0),
+    reg(side(0.0332, 0.0332, 0.106, 10), L.can.wrap, 0, 0.056, 0),
+    part(side(0.0275, 0.0332, 0.015, 10), metal(0.72), 0, 0.1165, 0),
+    part(disc(0.0275, 10), metal(0.6), 0, 0.124, 0),
+    part(plane(0.011, 0.018), metal(0.9), 0, 0.1242, 0.008, 0, UP),        // ring pull
   ]),
   bottle: () => merge([                                                 // 500 ml PET
-    part(side(0.033, 0.031, 0.11, 10), 1, 0, 0.055, 0),
-    pack(side(0.0345, 0.0345, 0.072, 10), 0, 0.094, 0),
-    part(side(0.015, 0.033, 0.05, 10), 1.15, 0, 0.155, 0),
-    part(topped(0.017, 0.016, 0.032, 8), WHITE, 0, 0.196, 0),            // neck and cap
+    part(side(0.033, 0.031, 0.058, 10), LIQUID_RIDGED, 0, 0.029, 0),
+    reg(side(0.0345, 0.0345, 0.072, 10), L.bottle.wrap, 0, 0.094, 0),
+    part(side(0.0145, 0.0335, 0.066, 10), LIQUID, 0, 0.163, 0),
+    ...capOf(L.bottle, 0.0165, 0.016, 0.196),
   ]),
-  bigBottle: () => merge([                                              // 1.5-2 L
-    part(side(0.049, 0.047, 0.2, 10), 1, 0, 0.1, 0),
-    pack(side(0.0505, 0.0505, 0.11, 10), 0, 0.13, 0),
-    part(side(0.02, 0.049, 0.07, 10), 1.15, 0, 0.235, 0),
-    part(topped(0.021, 0.02, 0.038, 8), WHITE, 0, 0.289, 0),
+  bigBottle: () => merge([                                              // 1.5 L PET
+    part(side(0.049, 0.046, 0.075, 10), LIQUID_RIDGED, 0, 0.0375, 0),
+    reg(side(0.0505, 0.0505, 0.11, 10), L.bigBottle.wrap, 0, 0.13, 0),
+    part(side(0.019, 0.049, 0.097, 10), LIQUID, 0, 0.2335, 0),
+    ...capOf(L.bigBottle, 0.021, 0.024, 0.282),
   ]),
-  carton: () => merge([                                                 // 1 L gable top
-    part(cube(0.07, 0.19, 0.07), 1, 0, 0.095, 0),
-    pack(plane(0.07, 0.19), 0, 0.095, 0.0352),
-    pack(plane(0.07, 0.19), 0, 0.095, -0.0352, Math.PI),
-    part(cyl(0.0404, 0.0404, 0.07, 3), 1, 0, 0.2102, 0, 0, 0, Math.PI / 2), // gable roof (apex up)
-    part(cube(0.07, 0.018, 0.005), 1.1, 0, 0.255, 0),                     // top fin
+  squareBottle: () => merge([                                           // 2 L PET, square
+    squircle(part(side(0.049, 0.047, 0.06, 12), LIQUID_RIDGED, 0, 0.03, 0)),
+    squircle(reg(side(0.0505, 0.0505, 0.12, 12), L.squareBottle.wrap, 0, 0.12, 0)),
+    squircle(part(side(0.03, 0.049, 0.055, 12), LIQUID_RIDGED, 0, 0.2075, 0)),
+    part(side(0.0195, 0.03, 0.025, 8), LIQUID, 0, 0.2475, 0),
+    part(side(0.0195, 0.0195, 0.012, 8), CLEAR, 0, 0.266, 0),
+    ...capOf(L.squareBottle, 0.021, 0.024, 0.272),
   ]),
-  tub: () => merge([                                                    // yogurt, margarine, miso
-    part(side(0.052, 0.046, 0.06, 10), 1, 0, 0.03, 0),
-    pack(side(0.0523, 0.0468, 0.042, 10), 0, 0.03, 0),
-    part(topped(0.055, 0.055, 0.009, 10), 1.25, 0, 0.0645, 0),
-    pack(plane(0.07, 0.07), 0, 0.0692, 0, 0, UP),                        // printed lid
+  jug: () => merge([                                                    // detergent: opaque, with a grip
+    squircle(part(side(0.058, 0.056, 0.05, 12), 1, 0, 0.025, 0), 1, 0.62),
+    squircle(reg(side(0.0585, 0.0585, 0.13, 12), L.jug.wrap, 0, 0.115, 0), 1, 0.62),
+    squircle(part(side(0.026, 0.058, 0.04, 12), 1.08, 0, 0.2, 0), 1, 0.62),
+    part(torus(0.04, 0.009, 4, 8, Math.PI), 1, -0.035, 0.155, 0, 0, 0, Math.PI / 2),   // the grip
+    ...capOf(L.jug, 0.028, 0.03, 0.22),
+  ]),
+  carton: () => merge([                                                 // 1 L gable top, printed all round
+    reg(plane(0.07, 0.19), L.carton.front, 0, 0.095, 0.035),
+    reg(plane(0.07, 0.19), L.carton.back, 0, 0.095, -0.035, Math.PI),
+    reg(plane(0.07, 0.19), L.carton.side, 0.035, 0.095, 0, Math.PI / 2),
+    reg(plane(0.07, 0.19), L.carton.side, -0.035, 0.095, 0, -Math.PI / 2),
+    part(cyl(0.0404, 0.0404, 0.07, 3), 0.95, 0, 0.2102, 0, 0, 0, Math.PI / 2),   // gable roof (apex up)
+    part(cube(0.07, 0.018, 0.004), 1.05, 0, 0.255, 0),                      // top fin
+  ]),
+  tub: () => merge([                                                    // yogurt, butter spread, miso
+    reg(side(0.0523, 0.0468, 0.05, 10), L.tub.wrap, 0, 0.025, 0),
+    part(side(0.055, 0.055, 0.01, 10), 1.15, 0, 0.055, 0),
+    reg(disc(0.055, 10), L.tub.lid, 0, 0.06, 0),                  // printed lid
   ]),
   block: () => merge([                                                  // butter 200 g
-    part(cube(0.1, 0.036, 0.065), 1, 0, 0.018, 0),
-    pack(plane(0.1, 0.036), 0, 0.018, 0.0327),
-    pack(plane(0.1, 0.065), 0, 0.0362, 0, 0, UP),
+    reg(plane(0.1, 0.036), L.block.front, 0, 0.018, 0.0325),
+    reg(plane(0.1, 0.036), L.block.front, 0, 0.018, -0.0325, Math.PI),
+    reg(plane(0.065, 0.036), L.block.side, 0.05, 0.018, 0, Math.PI / 2),
+    reg(plane(0.065, 0.036), L.block.side, -0.05, 0.018, 0, -Math.PI / 2),
+    reg(plane(0.1, 0.065), L.block.top, 0, 0.036, 0, 0, UP),
   ]),
-  bag: () => merge([                                                    // crisps, carrots, rice
-    part(cube(0.15, 0.19, 0.05), 1, 0, 0.105, 0),
-    part(cube(0.13, 0.03, 0.056), 1, 0, 0.11, 0),                         // filled belly
-    pack(plane(0.15, 0.19), 0, 0.105, 0.0305),
-    pack(plane(0.15, 0.19), 0, 0.105, -0.0305, Math.PI),
-    part(cube(0.152, 0.016, 0.01), 1.12, 0, 0.207, 0),                    // crimped seal
+  bag: () => merge([                                                    // crisps, carrots, rice: a puffed pillow
+    reg(pillow(0.15, 0.19, 0.03, 1), L.bag.front, 0, 0.012, 0),
+    reg(pillow(0.15, 0.19, 0.03, -1), L.bag.back, 0, 0.012, 0),
+    ...[[0.207, 0.012], [0.007, 0.01]].flatMap(([y, h]) => [0, Math.PI].map((ry) => part(plane(0.15, h), 0.92, 0, y, 0, ry))),   // crimped seals
   ]),
   box: () => merge([                                                    // sweets, roux, frozen
-    part(cube(0.11, 0.17, 0.04), 1, 0, 0.085, 0),
-    pack(plane(0.11, 0.17), 0, 0.085, 0.0202),
-    pack(plane(0.11, 0.17), 0, 0.085, -0.0202, Math.PI),
+    reg(plane(0.11, 0.17), L.box.front, 0, 0.085, 0.02),
+    reg(plane(0.11, 0.17), L.box.back, 0, 0.085, -0.02, Math.PI),
+    reg(plane(0.04, 0.17), L.box.side, 0.055, 0.085, 0, Math.PI / 2),
+    reg(plane(0.04, 0.17), L.box.side, -0.055, 0.085, 0, -Math.PI / 2),
+    part(plane(0.11, 0.04), 1.05, 0, 0.17, 0, 0, UP),
   ]),
-  jar: () => merge([                                                    // jam, honey
-    part(side(0.036, 0.036, 0.09, 10), 1, 0, 0.045, 0),
-    pack(side(0.0365, 0.0365, 0.05, 10), 0, 0.042, 0),
-    part(topped(0.035, 0.035, 0.016, 10), SILVER, 0, 0.099, 0),
+  jar: () => merge([                                                    // jam, honey: the glass shows the contents
+    part(side(0.036, 0.034, 0.02, 10), LIQUID, 0, 0.01, 0),
+    reg(side(0.0365, 0.0365, 0.05, 10), L.jar.wrap, 0, 0.045, 0),
+    part(side(0.032, 0.036, 0.02, 10), LIQUID, 0, 0.08, 0),
+    reg(side(0.035, 0.035, 0.016, 10), L.jar.lid, 0, 0.098, 0),
+    reg(disc(0.035, 10), L.jar.lid, 0, 0.106, 0),
   ]),
-  loaf: () => merge([                                                   // bread in its bag, lying along z
-    part(cube(0.115, 0.1, 0.22), 1, 0, 0.05, 0),
-    part(cyl(0.0575, 0.0575, 0.22, 8), 1, 0, 0.1, 0, 0, Math.PI / 2),
-    pack(plane(0.09, 0.06), 0, 0.075, 0.1105),
+  loaf: () => merge([                                                   // shokupan in its bag, lying along z
+    reg(cube(0.115, 0.1, 0.2), L.loaf.crust, 0, 0.05, 0),
+    reg(cyl(0.0575, 0.0575, 0.2, 8), L.loaf.crust, 0, 0.1, 0, 0, Math.PI / 2),
+    part(cyl(0.004, 0.05, 0.03, 6, true), 1.05, 0, 0.075, -0.115, 0, -Math.PI / 2),   // twisted bag end
+    flat(plane(0.03, 0.012), L.loaf.tie, 0, 0.075, -0.125, Math.PI),
+    reg(plane(0.09, 0.06), L.loaf.front, 0, 0.075, 0.1005),
   ]),
-  bun: () => merge([                                                    // melon pan in a clear bag
-    part(side(0.05, 0.056, 0.022, 8), 0.8, 0, 0.011, 0),
-    part(topped(0.024, 0.05, 0.03, 8), 1, 0, 0.037, 0),                    // the dome
-    pack(plane(0.05, 0.034), 0, 0.034, 0.047, 0, -0.75),                  // sticker
+  baguette: () => merge([                                               // lying along the shelf, half in a paper sleeve
+    reg(cyl(0.032, 0.032, 0.18, 8), L.baguette.crust, 0.08, 0.032, 0, 0, 0, -Math.PI / 2),
+    reg(cyl(0.006, 0.032, 0.06, 8), L.baguette.crust, 0.2, 0.032, 0, 0, 0, -Math.PI / 2),
+    reg(cyl(0.035, 0.035, 0.22, 8), L.baguette.front, -0.12, 0.032, 0, 0, 0, -Math.PI / 2),
+  ]),
+  bun: () => merge([                                                    // melon pan / curry pan in a clear bag
+    part(side(0.05, 0.056, 0.02, 10), 0.85, 0, 0.01, 0),
+    reg(topped(0.024, 0.05, 0.032, 10), L.bun.crust, 0, 0.036, 0),
+    reg(plane(0.05, 0.034), L.bun.front, 0, 0.034, 0.047, 0, -0.75),
   ]),
   fruit: () => merge([                                                  // three on a pulp tray
-    part(cube(0.15, 0.014, 0.12), WHITE, 0, 0.007, 0),
-    part(ball(0.037), 1, -0.037, 0.05, 0.024),
-    part(ball(0.037), 1, 0.037, 0.05, 0.024),
-    part(ball(0.037), 0.9, 0, 0.05, -0.03),
-    pack(plane(0.11, 0.014), 0, 0.007, 0.0605),                           // band on the tray edge
+    part(cube(0.15, 0.014, 0.12), PULP, 0, 0.007, 0),
+    reg(globe(0.037, 7, 4, 0.92), L.fruit.skin, -0.037, 0.048, 0.024, 0.6),
+    reg(globe(0.037, 7, 4, 0.92), L.fruit.skin, 0.037, 0.048, 0.024, 2.1),
+    reg(globe(0.037, 7, 4, 0.92), L.fruit.skin, 0, 0.05, -0.03, 4),
+    reg(plane(0.11, 0.014), L.fruit.front, 0, 0.007, 0.0605),
+  ]),
+  banana: () => merge([                                                 // a hand of four, lying on the table
+    ...[-0.03, -0.01, 0.01, 0.03].map((z, i) => reg(finger(0.2, 0.017, 0.035), L.banana.skin, 0, 0.018 + (i % 2) * 0.006, z, 0, 0, 0)),
+    part(cube(0.02, 0.016, 0.04), 0.42, -0.104, 0.042, 0),                 // the crown
+    reg(plane(0.05, 0.014), L.banana.front, 0.02, 0.04, 0.05, 0, -0.4),
+  ]),
+  head: () => merge([                                                   // a cabbage, taped label
+    reg(globe(0.075, 10, 6, 0.85), L.head.skin, 0, 0.064, 0),
+    reg(plane(0.07, 0.02), L.head.front, 0, 0.07, 0.0745),
   ]),
   tray: () => merge([                                                   // eggs, strawberry punnet
-    part(cube(0.26, 0.04, 0.105), 1, 0, 0.02, 0),
-    ...[-0.025, 0.025].map((z) => part(side(0.022, 0.022, 0.25, 6), 1.08, 0, 0.04, z, 0, 0, Math.PI / 2)),   // the rows of cups
-    pack(plane(0.2, 0.034), 0, 0.02, 0.0528),
+    part(cube(0.26, 0.04, 0.105), PULP, 0, 0.02, 0),
+    // The clear lid domed over two rows (eggs, berries), printed with what is under it.
+    reg(sheet(5, 4, (u, v) => [(u - 0.5) * 0.26, 0.04 + 0.021 * Math.abs(Math.sin(Math.PI * 2 * v)), (0.5 - v) * 0.105]), L.tray.top, 0, 0, 0),
+    reg(plane(0.2, 0.034), L.tray.front, 0, 0.02, 0.0528),
   ]),
   roll: () => merge([                                                   // green onions, lying along z
-    ...[[-0.013, 0.012], [0.013, 0.012], [0, 0.034]].map(([x, y]) => part(side(0.012, 0.012, 0.3, 5), 1, x, y, 0.06, 0, Math.PI / 2)),
-    ...[[-0.013, 0.012], [0.013, 0.012], [0, 0.034]].map(([x, y]) => part(side(0.01, 0.008, 0.16, 5), 0.55, x, y, -0.17, 0, Math.PI / 2)),
-    pack(side(0.032, 0.032, 0.03, 6), 0, 0.022, 0.1, 0, Math.PI / 2),    // band
+    ...[[-0.013, 0.012], [0.013, 0.012], [0, 0.034]].map(([x, y]) => reg(side(0.012, 0.009, 0.46, 5), L.roll.skin, x, y, 0, 0, Math.PI / 2)),
+    reg(side(0.032, 0.032, 0.03, 6), L.roll.front, 0, 0.022, 0.12, 0, Math.PI / 2),    // band
   ]),
   pack: () => merge([                                                   // wrapped multipacks
-    part(cube(0.2, 0.12, 0.12), 1, 0, 0.06, 0),
-    pack(plane(0.2, 0.12), 0, 0.06, 0.0605),
-    pack(plane(0.2, 0.12), 0, 0.1205, 0, 0, UP),
-    part(cube(0.205, 0.012, 0.125), CLEAR, 0, 0.114, 0),                  // film fold
+    reg(plane(0.2, 0.12), L.pack.front, 0, 0.06, 0.06),
+    reg(plane(0.2, 0.12), L.pack.front, 0, 0.06, -0.06, Math.PI),
+    reg(plane(0.12, 0.12), L.pack.side, 0.1, 0.06, 0, Math.PI / 2),
+    reg(plane(0.12, 0.12), L.pack.side, -0.1, 0.06, 0, -Math.PI / 2),
+    reg(plane(0.2, 0.12), L.pack.top, 0, 0.12, 0, 0, UP),
+    part(cube(0.205, 0.008, 0.125), CLEAR, 0, 0.118, 0),                    // film fold
   ]),
   tag: () => {                                                          // shelf-edge price tag
     const p = part(plane(0.09, 0.03), 1, 0, 0, 0, 0, -0.12, 0, true);
@@ -311,33 +434,35 @@ const PACKS = {
 
 /** A pack's footprint along its row (w), depth (d) and height (h), for stocking and stacking. */
 export const PACK_SIZE = {
-  can: { w: 0.068, d: 0.068, h: 0.126 }, bottle: { w: 0.07, d: 0.07, h: 0.212 }, bigBottle: { w: 0.1, d: 0.1, h: 0.308 },
-  carton: { w: 0.072, d: 0.072, h: 0.264 }, tub: { w: 0.112, d: 0.112, h: 0.069 }, block: { w: 0.1, d: 0.065, h: 0.036 },
+  can: { w: 0.068, d: 0.068, h: 0.128 }, bottle: { w: 0.07, d: 0.07, h: 0.212 }, bigBottle: { w: 0.1, d: 0.1, h: 0.306 },
+  squareBottle: { w: 0.104, d: 0.104, h: 0.296 }, jug: { w: 0.12, d: 0.075, h: 0.25 },
+  carton: { w: 0.072, d: 0.072, h: 0.264 }, tub: { w: 0.112, d: 0.112, h: 0.061 }, block: { w: 0.1, d: 0.065, h: 0.036 },
   bag: { w: 0.155, d: 0.065, h: 0.215 }, box: { w: 0.11, d: 0.042, h: 0.17 }, jar: { w: 0.074, d: 0.074, h: 0.107 },
-  loaf: { w: 0.118, d: 0.24, h: 0.158 }, bun: { w: 0.115, d: 0.115, h: 0.055 }, fruit: { w: 0.15, d: 0.12, h: 0.088 },
+  loaf: { w: 0.118, d: 0.24, h: 0.158 }, baguette: { w: 0.46, d: 0.07, h: 0.068 }, bun: { w: 0.115, d: 0.115, h: 0.055 },
+  fruit: { w: 0.15, d: 0.12, h: 0.088 }, banana: { w: 0.24, d: 0.1, h: 0.075 }, head: { w: 0.15, d: 0.15, h: 0.128 },
   tray: { w: 0.26, d: 0.105, h: 0.063 }, roll: { w: 0.05, d: 0.48, h: 0.046 }, pack: { w: 0.2, d: 0.12, h: 0.122 },
 };
 
 /**
  * Far level of detail for the packs (a stocked shelf seen down an aisle):
  * the front as a quad in the pack colour, its print as a second just in
- * front ([y0, y1, share of the width]; round packs show one of their two
- * wrapped labels), and the top: 6 triangles instead of ~100.
+ * front ([y0, y1] of the pack, share of the width; wrapped labels show the
+ * middle of their front half), and the top: 6 triangles instead of ~100.
  */
 const FAR_PRINT = {
-  can: [0.01, 0.112, 1], bottle: [0.058, 0.13, 1], bigBottle: [0.075, 0.185, 1], carton: [0, 0.19, 1], tub: [0.009, 0.051, 1],
-  block: [0, 0.036, 1], bag: [0.01, 0.2, 1], box: [0, 0.17, 1], jar: [0.017, 0.067, 1], loaf: [0.045, 0.105, 0.78],
-  bun: [0.017, 0.051, 0.45], fruit: [0, 0.014, 0.75], tray: [0.003, 0.037, 0.77], roll: null, pack: [0, 0.12, 1],
+  can: [0.01, 0.112, 1], bottle: [0.058, 0.13, 1], bigBottle: [0.075, 0.185, 1], squareBottle: [0.06, 0.18, 1], jug: [0.05, 0.18, 1],
+  carton: [0, 0.19, 1], tub: [0, 0.05, 1], block: [0, 0.036, 1], bag: [0.03, 0.19, 1], box: [0, 0.17, 1], jar: [0.02, 0.07, 1],
+  loaf: [0.045, 0.105, 0.78], baguette: null, bun: [0.017, 0.051, 0.45], fruit: [0, 0.014, 0.75], banana: null, head: null,
+  tray: [0.003, 0.037, 0.77], roll: null, pack: [0, 0.12, 1],
 };
-const ROUND = new Set(['can', 'bottle', 'bigBottle', 'tub', 'jar']);
+const WRAPPED = new Set(['can', 'bottle', 'bigBottle', 'squareBottle', 'jug', 'tub', 'jar']);
 for (const [shape, band] of Object.entries(FAR_PRINT)) {
   const { w, d, h } = PACK_SIZE[shape];
   PACKS[`far:${shape}`] = () => {
     const parts = [part(plane(w, h), 1, 0, h / 2, d / 2 - 0.003), part(plane(w, d), 0.92, 0, h, 0, 0, UP)];
     if (band) {
-      const p = pack(plane(w * band[2], band[1] - band[0]), 0, (band[0] + band[1]) / 2, d / 2);
-      if (ROUND.has(shape)) for (let i = 0; i < p.uvs2.length; i += 2) p.uvs2[i] = 0.5 + 0.5 * p.uvs2[i];
-      parts.push(p);
+      const front = L[shape].front, r = WRAPPED.has(shape) ? { r: [front.r[0] + front.r[2] * 0.15, front.r[1], front.r[2] * 0.7, front.r[3]] } : front;
+      parts.push(reg(plane(w * band[2], band[1] - band[0]), r, 0, (band[0] + band[1]) / 2, d / 2));
     }
     return merge(parts);
   };
@@ -370,7 +495,7 @@ function template(scene, shape, grocery = false) {
 /**
  * Printed parts take their colour from the unit's atlas cell instead of the
  * instance colour, keeping the part's shade (its vertex colour). `atlas`
- * gives the texture; `neutral`: shades of 2 + g draw grey g (grocery packs).
+ * gives the texture; `neutral`: the grocery packs' surface codes (see "grocery packs").
  */
 class PrintPlugin extends MaterialPluginBase {
   constructor(material, atlas, neutral = false) {
@@ -387,17 +512,37 @@ class PrintPlugin extends MaterialPluginBase {
   getCustomCode(type) {
     if (type === 'vertex') {
       return {
-        CUSTOM_VERTEX_DEFINITIONS: 'attribute vec2 aLabelUv;\nattribute vec2 aCell;\nvarying vec2 vLabelUv;\nvarying float vPrinted;\nvarying float vShade;',
+        CUSTOM_VERTEX_DEFINITIONS: 'attribute vec2 aLabelUv;\nattribute vec2 aCell;\nvarying vec2 vLabelUv;\nvarying float vPrinted;\nvarying float vShade;\nvarying float vPackY;',
         CUSTOM_VERTEX_MAIN_END: `
           vPrinted = step(0.0, aLabelUv.x);
           vLabelUv = (aCell + clamp(aLabelUv, 0.0, 1.0) * 0.94 + 0.03) / ${CELLS.toFixed(1)};
-          vShade = color.r;`,
+          vShade = color.r;
+          vPackY = position.y;`,
       };
     }
     return {
-      CUSTOM_FRAGMENT_DEFINITIONS: 'uniform sampler2D labelAtlas;\nvarying vec2 vLabelUv;\nvarying float vPrinted;\nvarying float vShade;',
-      CUSTOM_FRAGMENT_UPDATE_ALPHA: 'if (vPrinted > 0.5) surfaceAlbedo = toLinearSpace(texture2D(labelAtlas, vLabelUv).rgb) * vShade;\n'
-        + '#ifdef PRINT_NEUTRAL\nelse if (vShade > 1.95) surfaceAlbedo = vec3(vShade - 2.0);\n#endif\n',
+      CUSTOM_FRAGMENT_DEFINITIONS: 'uniform sampler2D labelAtlas;\nvarying vec2 vLabelUv;\nvarying float vPrinted;\nvarying float vShade;\nvarying float vPackY;',
+      CUSTOM_FRAGMENT_UPDATE_ALPHA: `
+        if (vPrinted > 0.5) surfaceAlbedo = toLinearSpace(texture2D(labelAtlas, vLabelUv).rgb) * vShade;
+        #ifdef PRINT_NEUTRAL
+        else if (vShade > 1.95) {
+          float code = floor(vShade + 0.01), k = vShade - code;
+          if (code < 2.5) surfaceAlbedo = vec3(k);
+          else {
+            // Clear PET, glass and metal: no transparency (it would need sorting
+            // across thousands of packs), but a fresnel rim, two upright glints
+            // across the part as seen, and moulded ridges.
+            float rim = pow(1.0 - abs(dot(normalW, viewDirectionW)), 2.0);
+            float s = dot(normalW, normalize(cross(vec3(0.0, 1.0, 0.0), viewDirectionW) + vec3(1e-4, 0.0, 0.0)));
+            float glint = smoothstep(0.1, 0.0, abs(s + 0.45)) * 0.8 + smoothstep(0.06, 0.0, abs(s - 0.6)) * 0.45;
+            float ridge = k > 0.25 ? 0.94 + 0.06 * sin(vPackY * 900.0) : 1.0;
+            if (code < 3.5) surfaceAlbedo = mix(surfaceAlbedo / vShade * 0.8, vec3(0.8, 0.86, 0.9), rim * 0.6) * ridge + glint;
+            else if (code < 4.5) surfaceAlbedo = mix(vec3(0.5, 0.56, 0.6), vec3(0.92, 0.95, 0.97), rim) * ridge + glint;
+            else surfaceAlbedo = vec3(k) * (0.55 + 0.9 * rim) + glint * 0.7;
+          }
+        }
+        #endif
+      `,
     };
   }
 }

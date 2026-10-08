@@ -1,12 +1,13 @@
 import { DynamicTexture, Matrix, Mesh, PBRMaterial, VertexData } from '@babylonjs/core';
-import { CLOTHES } from './MallCatalog.js';
-import { FONT } from '../interiors/Labels.js';
+import { CLOTHES, FASHION_BRANDS } from './MallCatalog.js';
+import { fitFont, logo } from './FashionBrands.js';
 import { torus } from '../interiors/Products.js';
 
 /**
  * Sakura Style's printed things, from one 1024² atlas painted once: a price
- * card per catalog garment (name and price, clipped on the rails and as
- * tent cards by the sneakers) and the store's branded paper bag. Cards are
+ * card per catalog garment (its label's logo, name, price and sizes,
+ * clipped on the rails and as tent cards by the sneakers) and the store's
+ * branded paper bag (FashionBrands' logos). Cards are
  * merged into one static mesh; the bags are a few prebuilt meshes (made at
  * load, reused), so nothing is created in play.
  */
@@ -29,35 +30,47 @@ function paintAtlas(scene) {
   tex.anisotropicFilteringLevel = 4;
   const g = tex.getContext();
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  const fit = (text, weight, size, max) => {
-    g.font = `${weight} ${size}px ${FONT}`;
-    while (g.measureText(text).width > max && size > 10) { size -= 2; g.font = `${weight} ${size}px ${FONT}`; }
-  };
   CLOTHES.forEach((c, i) => {
-    const x = (i % COLS) * CW, y = Math.floor(i / COLS) * CH;
+    // A price card: the label's band and logo, the name, the price, the sizes.
+    const x = (i % COLS) * CW, y = Math.floor(i / COLS) * CH, B = FASHION_BRANDS[c.style.brand];
     g.fillStyle = '#fbf8f3'; g.fillRect(x, y, CW, CH);
-    g.fillStyle = PINK; g.fillRect(x, y, CW, 26);
-    g.fillStyle = '#ffffff'; g.font = `700 17px ${FONT}`; g.fillText(BRAND, x + CW / 2, y + 14);
-    g.fillStyle = '#3a2f36'; fit(c.name, 700, 26, CW - 24); g.fillText(c.name, x + CW / 2, y + 52);
-    g.fillStyle = ROSE; fit(`${c.price} coins`, 900, 38, CW - 30); g.fillText(`${c.price} coins`, x + CW / 2, y + 96);
+    g.fillStyle = B.ink; g.fillRect(x, y, CW, 32);
+    logo(g, c.style.brand, x + CW / 2, y + 16, CW * 0.62, 26, '#ffffff');
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#3a2f36'; fitFont(g, c.name, CW - 28, 24, 700); g.fillText(c.name, x + CW / 2, y + 52);
+    g.fillStyle = ROSE; fitFont(g, `${c.price} coins`, CW * 0.55, 34, 800); g.fillText(`${c.price} coins`, x + CW * 0.66, y + 96);
+    g.fillStyle = '#8a7f86'; fitFont(g, '税込', 30, 13, 700); g.fillText('税込', x + CW * 0.66, y + 117);
+    g.strokeStyle = '#8a7f86'; g.lineWidth = 1.5;
+    (c.kind === 'shoes' ? ['23', '24', '25'] : ['S', 'M', 'L']).forEach((z, k) => {
+      const bx = x + 16 + k * 24, by = y + 84;
+      g.strokeRect(bx, by, 20, 20);
+      fitFont(g, z, 16, 14, 700); g.fillText(z, bx + 10, by + 11);
+    });
     g.strokeStyle = '#e6dcd2'; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, CW - 3, CH - 3);
   });
-  // The bag's print: the name on rose-pink paper, a five-petal blossom.
+  // The bag's print: the store's logo in white on rose-pink paper; the paper strewn with blossoms.
   const lx = (LOGO % COLS) * CW, ly = Math.floor(LOGO / COLS) * CH;
   g.fillStyle = PINK; g.fillRect(lx, ly, CW, CH);
-  g.fillStyle = '#ffffff';
-  for (let k = 0; k < 5; k++) {
-    const a = (k / 5) * Math.PI * 2 - Math.PI / 2;
-    g.beginPath(); g.arc(lx + 40 + Math.cos(a) * 13, ly + CH / 2 + Math.sin(a) * 13, 11, 0, Math.PI * 2); g.fill();
-  }
-  g.fillStyle = '#f7d36b'; g.beginPath(); g.arc(lx + 40, ly + CH / 2, 6, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#ffffff'; g.font = `italic 800 36px ${FONT}`; g.fillText(BRAND, lx + 150, ly + CH / 2 - 6);
-  g.font = `600 14px ${FONT}`; g.fillText('HIKARI MALL', lx + 150, ly + CH / 2 + 28);
-  for (const [cell, hex] of [[PAPER, PINK], [ROPE, ROSE], [TISSUE, '#fbfaf7']]) {
+  logo(g, BRAND, lx + CW / 2, ly + CH / 2, CW * 0.86, CH * 0.6, '#ffffff');
+  const px = (PAPER % COLS) * CW, py = Math.floor(PAPER / COLS) * CH;
+  g.fillStyle = PINK; g.fillRect(px, py, CW, CH);
+  g.globalAlpha = 0.35;
+  for (let k = 0; k < 18; k++) blossom(g, px + ((k * 53) % CW), py + ((k * 37) % CH), 7 + (k % 3) * 3, '#ffffff');
+  g.globalAlpha = 1;
+  for (const [cell, hex] of [[ROPE, ROSE], [TISSUE, '#fbfaf7']]) {
     g.fillStyle = hex; g.fillRect((cell % COLS) * CW, Math.floor(cell / COLS) * CH, CW, CH);
   }
   tex.update();
   return tex;
+}
+
+/** A small five-petal blossom (the bag paper's pattern). */
+function blossom(g, x, y, r, fill) {
+  g.fillStyle = fill;
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2 - Math.PI / 2;
+    g.beginPath(); g.arc(x + Math.cos(a) * r * 0.55, y + Math.sin(a) * r * 0.55, r * 0.45, 0, Math.PI * 2); g.fill();
+  }
 }
 
 /** A w × h print facing +z, mapped to a cell. */
@@ -69,6 +82,13 @@ function quad(w, h, cell) {
     uvs: [u0, v1, u1, v1, u0, v0, u1, v0],
     indices: [0, 1, 2, 2, 1, 3],
   });
+}
+
+/** A primitive's own uvs squeezed into a cell (a patterned surface). */
+function mapped(vd, cell) {
+  const [u0, v0, u1, v1] = rect(cell);
+  for (let i = 0; i < vd.uvs.length; i += 2) { vd.uvs[i] = u0 + (u1 - u0) * vd.uvs[i]; vd.uvs[i + 1] = v0 + (v1 - v0) * vd.uvs[i + 1]; }
+  return vd;
 }
 
 /** A primitive in one flat colour (all its uvs at the middle of a plain cell). */
@@ -131,7 +151,7 @@ export class FashionPrint {
   bag(name) {
     const W = 0.3, H = 0.34, D = 0.12, top = -0.05;   // the handles rise 5 cm above the paper
     const parts = [
-      at(plain(VertexData.CreateBox({ width: W, height: H, depth: D }), PAPER), 0, top - H / 2, 0),
+      at(mapped(VertexData.CreateBox({ width: W, height: H, depth: D }), PAPER), 0, top - H / 2, 0),
       at(quad(W * 0.86, W * 0.43, LOGO), 0, top - H * 0.42, D / 2 + 0.001),
       at(quad(W * 0.86, W * 0.43, LOGO), 0, top - H * 0.42, -D / 2 - 0.001, Math.PI),
       // Tissue paper peeking out of the top.
