@@ -51,18 +51,23 @@ export class MallCars {
           writeTRS(matrices, i * 16, c.x, 0, c.z, _q);
         });
         const meshes = [];
+        const m0 = v.far.getChildMeshes(false).find((x) => x.material?.name === 'carPaint');
         for (const src of v.far.getChildMeshes(false)) {
           const name = src.material?.name || '';
-          if (!src.getTotalVertices() || skip.test(name)) continue;
+          // Shadow-only stand-ins (layer mask) aren't car parts to draw.
+          if (!src.getTotalVertices() || skip.test(name) || src.layerMask !== m0.layerMask) continue;
           const body = name === 'carPaint';
           const m = lowPoly(src, `mall:parked:${type}:${li}:${name}`, { error: body ? error : error * 2.5, normals, prune: true });
           if (!m) continue;
           m.parent = this.root;
           m.thinInstanceSetBuffer('matrix', matrices, 16, false);
           m.thinInstanceRefreshBoundingInfo(false);
-          m.doNotSyncBoundingInfo = true;
+          // World bounds from the site's frame once, then never re-synced:
+          // switched off before, they kept the local box at the world origin,
+          // so every parked car was culled while its collider stayed in the lot.
           m.computeWorldMatrix(true);
           m.freezeWorldMatrix();
+          m.doNotSyncBoundingInfo = true;
           meshes.push(m);
           // The body casts; glass and lamps are too small or clear to.
           if (body) this.casters.push(m);
