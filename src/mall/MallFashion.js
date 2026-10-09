@@ -424,6 +424,16 @@ export class MallFashion {
   }
 
   /**
+   * A paid bag from another of the mall's shops (MallShops) into her right
+   * hand, with the store's: it hangs and goes to the cart and the boot as
+   * theirs do (`mesh` stays its shop's to dispose).
+   */
+  addBag(mesh, items) {
+    this.bags.push({ mesh, items });
+    this._ver++;
+  }
+
+  /**
    * An unused bag from the till's stack. Bags that went out stay out (in her
    * hand, a cart, the boot), so when all are, another is made: three made
    * the fourth purchase of a trip impossible.

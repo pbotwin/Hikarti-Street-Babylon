@@ -12,13 +12,16 @@ import { showBubble } from '../npcs/life/Acts.js';
  *            reach and take a product or two into the cart / basket
  *   rack     at a clothing rack: hold a garment up, hang it back or keep it
  *   fit      try it on in a free fitting room (curtain drawn, out of sight)
+ *   shop     into one of the small shops (upstairs too): look round, and
+ *            maybe buy something at its till (a paper bag)
  *   queue    line up at a checkout (or the clothing till), unload onto the
  *            belt, pay, take the bags
  *   return   push the cart back into a corral
  *   car      walk back to the car and get in
- * Walking follows the mall's walk graph (MallNav), steers around people and
- * carts, waits politely while she is in the way, and gives up on a step that
- * stays blocked. Each update writes what the body should do (moving, speed,
+ * Walking follows the mall's walk graph (MallNav), rides the escalators
+ * where it goes between the floors (standing on a step), steers around
+ * people and carts, waits politely while she is in the way, and gives up on
+ * a step that stays blocked. Each update writes what the body should do (moving, speed,
  * facing, act and hand targets) onto the shopper for MallShoppers to animate.
  */
 const WALK = 1.05, PUSH = 0.85, TAKE = 2.3, HOLD_UP = 3.2, UNLOAD = 0.9, PAY = 3.4;
@@ -35,10 +38,11 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (u) => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-const _p = new Vector3(), _spot = { x: 0, z: 0, yaw: 0 }, _probe = { x: 0, z: 0 };
+const _p = new Vector3(), _spot = { x: 0, z: 0, yaw: 0 }, _probe = { x: 0, z: 0 }, _riding = { x: 0, y: 0, z: 0, yaw: 0 };
+const BROWSE = [3, 7], PAY_AT = 2.6;      // s looking round a small shop; at its till
 
 export class ShopperMind {
-  /** env: { layout, nav, collision, gear, lines, till, player, shoppers } */
+  /** env: { layout, nav, escalators, collision, gear, lines, till, player, shoppers } */
   constructor(env) {
     this.env = env;
     const L = env.layout;
@@ -46,6 +50,7 @@ export class ShopperMind {
     this.shelves = [...(L.grocery?.shelves || []), ...(L.grocery?.bins || []).map((b) => ({ ...b, bin: true }))]
       .map((sh) => ({ ...sh, f: facing(sh) }));
     this.racks = L.fashion?.racks || [];
+    this.shops = L.shops || [];
     this.byAisle = {};
     for (const p of GROCERIES) (this.byAisle[p.aisle] ||= []).push(p);
     this.byRack = {};
@@ -59,12 +64,26 @@ export class ShopperMind {
    * of their stops, the earlier products already in the cart.
    */
   plan(s, midway) {
-    // What they shop with (`kind` is what they hold now: none until they take it).
+    // What they shop with (`kind` is what they hold now: none until they take it);
+    // some only stroll round the small shops, upstairs too.
     const roll = Math.random();
-    s.want = this.racks.length && (roll > 0.78 || !this.shelves.length) ? null : roll < 0.5 ? 'cart' : 'basket';
-    if (!s.want && !this.racks.length) s.want = 'basket';
-    s.clothes = !s.want;
+    const stroll = this.shops.length && roll > 0.6 && roll < 0.8;
+    s.want = stroll || (this.racks.length && (roll > 0.78 || !this.shelves.length)) ? null : roll < 0.42 ? 'cart' : 'basket';
+    if (!s.want && !stroll && !this.racks.length) s.want = 'basket';
+    s.clothes = !s.want && !stroll;
     const plan = [{ type: 'emerge' }];
+    if (stroll) {
+      for (const shop of this._stops(this.shops, 2 + Math.floor(Math.random() * 2))) {
+        const b = pick(shop.browse);
+        plan.push({ type: 'shop', shop, x: b.x, z: b.z, yaw: b.yaw, y: shop.y, buy: Math.random() < 0.55, wait: rnd(BROWSE[0], BROWSE[1]) });
+      }
+      plan.push(this._at({ type: 'car' }, s));
+      s.plan = plan;
+      s.stage = 'arrive';
+      if (midway) this._skipAhead(s);
+      this._next(s);
+      return;
+    }
     // Carts from the corral nearest their car (one of the carts standing in it), back into it on the way out.
     const corral = this._nearestCorral(s.bay), slots = corral?.slots?.length ? corral.slots : corral ? [corral] : [];
     const stacked = Math.max(1, Math.min(corral?.count ?? slots.length, slots.length));
@@ -138,12 +157,12 @@ export class ShopperMind {
   _skipAhead(s) {
     const gear = this.env.gear;
     const stops = [];
-    s.plan.forEach((st, k) => { if (st.type === 'shelf' || st.type === 'rack') stops.push(k); });
+    s.plan.forEach((st, k) => { if (st.type === 'shelf' || st.type === 'rack' || st.type === 'shop') stops.push(k); });
     if (!stops.length) return;
     const k = pick(stops), st = s.plan[k];
     const before = s.plan.slice(0, k).filter((x) => x.type === 'shelf');
     s.plan = s.plan.slice(k);
-    s.position.set(st.x, this.env.layout.building.floorY || 0, st.z);
+    s.position.set(st.x, st.y ?? this.env.layout.building.floorY ?? 0, st.z);
     s.facing = s.facingTarget = st.yaw;
     s.stage = 'shop';
     if (!s.want) return;
@@ -171,15 +190,16 @@ export class ShopperMind {
     if (!st) return;
     if (st.type === 'queue') this._joinLine(s);
     else if (st.type === 'fit') this._toRoom(s, st);
-    else if (st.type !== 'emerge') this.routeTo(s, st.x, st.z);
+    else if (st.type !== 'emerge') this.routeTo(s, st.x, st.z, st.y);
   }
 
-  /** Plan the walk to (x, z) on the walk graph. */
-  routeTo(s, x, z) {
+  /** Plan the walk to (x, z) on the floor at y (the ground floor unless given) on the walk graph. */
+  routeTo(s, x, z, y = 0) {
     const p = s.position;
     s.ri = 0;
+    s.ride = null;
     s.prog.x = p.x; s.prog.z = p.z; s.prog.t = 0;
-    this.env.nav.path(p.x, p.z, x, z, s.route);
+    this.env.nav.path(p.x, p.z, x, z, s.route, p.y, y);
   }
 
   // ------------------------------------------------------------ per frame
@@ -208,6 +228,7 @@ export class ShopperMind {
       case 'queue': this._queue(s, dt); break;
       case 'return': if (this._walkTo(s, st, dt)) this._returnCart(s); break;
       case 'car': if (this._walkTo(s, st, dt)) this._getIn(s); break;
+      case 'shop': if (this._walkTo(s, st, dt)) this._shop(s, st); break;
       default: this._next(s);
     }
     this._pose(s);
@@ -228,6 +249,7 @@ export class ShopperMind {
   _walk(s, dt) {
     const env = this.env, p = s.position, route = s.route;
     const wp = route[s.ri], last = s.ri === route.count - 1;
+    if (wp.ride >= 0 && env.escalators) { this._ride(s, wp, dt); return; }
     let dx = wp.x - p.x, dz = wp.z - p.z;
     const d = Math.hypot(dx, dz);
     if (d < (last ? 0.15 : 0.45)) { s.ri++; this._carry(s, dt); return; }
@@ -241,7 +263,7 @@ export class ShopperMind {
         // Stuck for good, or still behind her past their patience: on to the next step.
         if ((++s.snags > 2 || s.yieldT >= PATIENCE) && s.step.type !== 'car' && s.step.type !== 'queue') { this._drop(s); this._next(s); return; }
         const goal = route[route.count - 1];
-        this.routeTo(s, goal.x, goal.z);
+        this.routeTo(s, goal.x, goal.z, s.step.y);
         return;
       }
     }
@@ -291,6 +313,23 @@ export class ShopperMind {
     s.moveSpeed = moved / Math.max(dt, 1e-4);
     s.facingTarget = Math.atan2(vx, vz);
     this._carry(s, dt);
+  }
+
+  /**
+   * On an escalator (the route's next point is its far end): stepping on
+   * where they are, standing on the step as it carries them, off at the
+   * far end, on along the route.
+   */
+  _ride(s, wp, dt) {
+    const p = s.position;
+    s.ride ||= this.env.escalators.rider(wp.ride, p.x, p.z, s.rideState || (s.rideState = {}));
+    const off = this.env.escalators.carry(s.ride, dt, _riding);
+    p.x = _riding.x; p.y = _riding.y; p.z = _riding.z;
+    s.facingTarget = _riding.yaw;
+    s.moving = false;
+    s.prog.t = 0;
+    this._carry(s, dt);
+    if (off) { s.ride = null; s.ri++; }
   }
 
   /** Personal space from a body or cart at (ox, oz), into this._vx / _vz / _slow. */
@@ -511,6 +550,28 @@ export class ShopperMind {
       this._drop(s);
       this._next(s);
     }
+  }
+
+  /**
+   * In a small shop: look round (at its shelves or tables); then, if they
+   * buy something, to its till, pay (a paper bag), and on.
+   */
+  _shop(s, st) {
+    if (s.sub === 0) {
+      s.act = 'browse'; s.actK = smooth(s.t / 0.4);
+      if (s.t < st.wait) return;
+      if (!st.buy) { this._next(s); return; }
+      const b = st.shop.buy;
+      st.x = b.x; st.z = b.z; st.yaw = b.yaw;
+      s.sub = 1; s.t = 0;
+      this.routeTo(s, b.x, b.z, st.y);
+      return;
+    }
+    s.act = 'press'; s.actK = smooth(s.t / 0.3);
+    if (s.t < PAY_AT) return;
+    if (!s.bag) s.bag = this.env.gear.takeBag();
+    showBubble(s, '🛍️', 2);
+    this._next(s);
   }
 
   /** Head for the nearest free fitting room (none free: skip it). */

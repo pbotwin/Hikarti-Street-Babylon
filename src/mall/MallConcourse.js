@@ -2,7 +2,7 @@ import { Matrix, Mesh, VertexData } from '@babylonjs/core';
 import { C } from './MallKit.js';
 import {
   CONCOURSE, VOID, UPPER, SOFFIT, UPPER_CEILING, ATRIUM_COLUMNS, ESCALATORS, FOUNTAIN, INFO_DESK, LIFT, TREE_PLANTERS,
-  GACHA, PHOTO_BOOTHS, VENDING, BENCHES, KIOSK, TOTEMS, TOTEM_Z, concourseObstacles,
+  GACHA, PHOTO_BOOTHS, VENDING, BENCHES, KIOSK, TOTEMS, TOTEM_Z, RUN, LIFT_DOORS, concourseObstacles,
 } from './MallPlan.js';
 
 /**
@@ -14,10 +14,12 @@ import {
  * light; planted trees with seats round them, benches, the information
  * desk, floor guides, a crêpe stand, the capsule-toy corner, photo
  * booths, vending machines; hanging banners, wayfinding and the season's
- * decoration (autumn fair, Halloween). The shops' fronts are
- * MallStorefronts'. Static: two batches like every zone (casters and the
- * rest); the trees are the lot's tree, one more instance each
- * (`trees`: [x, z, scale]).
+ * decoration (autumn fair, Halloween). The upper floor is walked: the
+ * galleries, the bridge and the landings collide as floors, their
+ * balustrades as walls. The shops' fronts are MallStorefronts'; what moves
+ * (the escalators' steps, the lift's car and doors) is Escalators' and GlassLift's.
+ * Static: two batches like every zone (casters and the rest); the trees
+ * are the lot's tree, one more instance each (`trees`: [x, z, scale]).
  */
 const LANTERN = { eave: 11.8, ridge: 13.4, rib: 2.4 };
 const LIFT_BRIDGE = { x0: LIFT.x - 0.9, x1: LIFT.x + 0.9 };
@@ -29,17 +31,17 @@ export function buildConcourse(site, mats, signs) {
   const { cast, still } = site.zone('concourse');
   const M = mats;
   floor(still, M);
-  galleries(still, cast, M);
+  galleries(site, still, cast, M);
   lantern(still, M);
   for (const x of ATRIUM_COLUMNS) for (const z of [VOID.z0, VOID.z1]) column(cast, M, x, z);
-  escalators(cast, still, M);
-  lift(cast, still, M);
+  escalators(site, cast, still, M);
+  lift(site, cast, still, M);
   fountain(cast, still, M);
   furniture(cast, still, M, signs);
   corners(cast, still, M, signs);
   decoration(cast, still, M, signs);
-  for (const o of concourseObstacles()) site.collide(o.x0, o.z0, o.x1, o.z1, 0, o.h, o.low ? { camera: false } : undefined);
-  // The galleries overhead (only the camera reaches them).
+  for (const o of concourseObstacles()) site.collide(o.x0, o.z0, o.x1, o.z1, 0, o.h, o.pass ? { camera: false } : undefined);
+  // The galleries: the concourse's ceiling, the upper floor's floor.
   for (const [x0, z0, x1, z1] of slabs()) site.collide(x0, z0, x1, z1, SOFFIT, UPPER);
   return { trees: TREE_PLANTERS.map((t) => [t.x, t.z, TREE_SCALE]) };
 }
@@ -63,10 +65,10 @@ function floor(b, M) {
 
 /**
  * The upper floor round the atrium: soffits with downlights over the walks,
- * lit slab edges, glass balustrades, the floor and ceiling up there (seen
- * through the atrium), a few planters on the galleries.
+ * lit slab edges, glass balustrades (walls at her waist), the floor and
+ * ceiling up there, a few planters on the galleries.
  */
-function galleries(still, cast, M) {
+function galleries(site, still, cast, M) {
   const V = VOID, E = ESCALATORS;
   for (const [x0, z0, x1, z1] of slabs()) {
     still.flat(M.ceiling, C.white, x0, z0, x1, z1, SOFFIT, true);
@@ -94,11 +96,12 @@ function galleries(still, cast, M) {
     const [c0, d0, c1, d1] = beside(x0, z0, x1, z1, f, 0.05, 0.13);
     still.flat(M.glow, C.light, c0, d0, c1, d1, SOFFIT - 0.135, true);
     const spans = gap ? [[z0, gap[0]], [gap[1], z1]].map(([a, c]) => [x0, a, x1, c]) : [[x0, z0, x1, z1]];
-    for (const [a0, b0, a1, b1] of spans) balustrade(still, M, a0 + f[0] * 0.08, b0 + f[1] * 0.08, a1 + f[0] * 0.08, b1 + f[1] * 0.08);
+    for (const [a0, b0, a1, b1] of spans) balustrade(site, still, M, a0 + f[0] * 0.08, b0 + f[1] * 0.08, a1 + f[0] * 0.08, b1 + f[1] * 0.08);
   }
   // Planters along the galleries' fronts.
   for (const x of [-27, -17, 6, 17, 28]) for (const z of [V.z0 - 0.9, V.z1 + 0.9]) {
     cast.box(M.satin, C.charcoal, x - 0.7, UPPER, z - 0.3, x + 0.7, UPPER + 0.55, z + 0.3);
+    site.collide(x - 0.7, z - 0.3, x + 0.7, z + 0.3, UPPER, UPPER + 0.55, { camera: false });
     for (const dx of [-0.4, 0, 0.4]) cast.sphere(M.matte, C.leaf, x + dx, UPPER + 0.75, z, 0.32, 0.9, 6);
   }
 }
@@ -109,10 +112,11 @@ function beside(x0, z0, x1, z1, f, a, b) {
   return [Math.min(x0 + ox * a, x0 + ox * b, x1), Math.min(z0 + oz * a, z0 + oz * b, z1), Math.max(x1 + ox * a, x1 + ox * b, x0), Math.max(z1 + oz * a, z1 + oz * b, z0)];
 }
 
-/** A glass balustrade between two points on the upper floor: base shoe, glass, chrome handrail. */
-function balustrade(b, M, x0, z0, x1, z1) {
+/** A glass balustrade between two points on the upper floor: base shoe, glass, chrome handrail; it keeps her on the floor (the camera may look over it). */
+function balustrade(site, b, M, x0, z0, x1, z1) {
   const len = Math.hypot(x1 - x0, z1 - z0);
   if (len < 0.05) return;
+  site.collide(Math.min(x0, x1) - 0.05, Math.min(z0, z1) - 0.05, Math.max(x0, x1) + 0.05, Math.max(z0, z1) + 0.05, UPPER, UPPER + 1.1, { camera: false });
   const fx = (z1 - z0) / len, fz = -(x1 - x0) / len;
   b.panel(M.glass, C.white, (x0 + x1) / 2, (z0 + z1) / 2, [fx, fz], len, UPPER + 0.12, UPPER + 1.02);
   b.box(M.metal, C.steel, Math.min(x0, x1) - 0.04, UPPER + 0.1, Math.min(z0, z1) - 0.04, Math.max(x0, x1) + 0.04, UPPER + 0.16, Math.max(z0, z1) + 0.04);
@@ -153,27 +157,34 @@ function lantern(b, M) {
 }
 
 /**
- * The escalators to the bridge (set dressing: she walks the ground floor):
- * a truss clad in steel, steps with yellow nosings, glass balustrades with
- * black handrails, landing plates; the bridge they land on.
+ * The escalators up to the bridge and down: a truss clad in steel under
+ * the moving steps (Escalators), skirts beside them, glass balustrades with
+ * black handrails, the landing plates with their combs (floor to walk on);
+ * the bridge they land on. Riders board on the plates; the runs between
+ * the combs collide (MallPlan concourseObstacles).
  */
-function escalators(cast, still, M) {
-  const E = ESCALATORS, V = VOID, land = 1.5;
-  const xa = E.x0 + land, xb = E.x1 - land, y0 = 0.12;
+function escalators(site, cast, still, M) {
+  const E = ESCALATORS, V = VOID, R = RUN;
+  const xa = R.foot, xb = R.head, y0 = R.y0;
   const mid = (E.z0 + E.z1) / 2;
   for (const [z0, z1] of [[E.z0, mid], [mid, E.z1]]) {
-    cast.slope(M.satin, C.steel, xa, y0, xb, UPPER, z0 + 0.02, z1 - 0.02, 1.1);
-    cast.box(M.metal, C.steel, E.x0, 0, z0 + 0.02, xa, y0, z1 - 0.02);
-    cast.box(M.metal, C.steel, xb, UPPER - 0.45, z0 + 0.02, E.x1, UPPER + 0.02, z1 - 0.02);
-    // Steps: a tread and riser per step, a comb plate at each end.
-    const zi0 = z0 + 0.28, zi1 = z1 - 0.28, n = 26, run = (xb - xa) / n, rise = (UPPER - y0) / n;
-    for (let k = 0; k < n; k++) {
-      const x = xa + k * run, y = y0 + (k + 1) * rise;
-      cast.box(M.metal, C.charcoal, x, y - rise, zi0, x + run, y, zi1);
-      still.box(M.matte, C.yellow, x, y - 0.01, zi0, x + 0.04, y + 0.003, zi1);
+    // Truss under the steps (low enough that the treads stand clear of it).
+    cast.slope(M.satin, C.steel, xa, y0 - 0.32, xb, UPPER - 0.32, z0 + 0.02, z1 - 0.02, 0.8);
+    // Landing plates (the combs where the steps go under), walked on.
+    cast.box(M.metal, C.steel, E.x0, 0, z0 + 0.02, R.comb0, y0, z1 - 0.02);
+    cast.box(M.metal, C.steel, R.comb1, UPPER - 0.45, z0 + 0.02, E.x1, UPPER + 0.02, z1 - 0.02);
+    site.collide(E.x0, z0 + 0.02, R.comb0, z1 - 0.02, 0, y0);
+    site.collide(R.comb1, z0 + 0.02, E.x1, z1 - 0.02, UPPER - 0.45, UPPER + 0.02);
+    const zi0 = (z0 + z1) / 2 - R.half, zi1 = (z0 + z1) / 2 + R.half;
+    for (const [x, y] of [[R.comb0, y0], [R.comb1 - 0.1, UPPER + 0.02]]) still.box(M.metal, C.yellow, x, y, zi0, x + 0.1, y + 0.012, zi1);
+    // Skirts along the steps' sides, from comb to comb, facing the steps.
+    for (const [z, f] of [[zi0 - 0.01, 1], [zi1 + 0.01, -1]]) {
+      for (const [xs, ys, xe, ye] of [[R.comb0, y0, xa, y0], [xa, y0, xb, UPPER], [xb, UPPER, R.comb1, UPPER]]) {
+        const run = [xe - xs, ye - ys, 0], up = [0, 0.42, 0];
+        still.face(M.metal, C.steel, [xs, ys - 0.3, z], f > 0 ? run : up, f > 0 ? up : run);
+      }
     }
-    for (const [x, y] of [[xa - 0.1, y0], [xb, UPPER + 0.02]]) still.box(M.metal, C.yellow, x, y, zi0, x + 0.1, y + 0.01, zi1);
-    // Balustrades on both sides: skirt, glass, handrail (round at the ends).
+    // Balustrades on both sides: deck, glass, handrail (round at the ends).
     for (const z of [z0 + 0.14, z1 - 0.14]) {
       still.face(M.glass, C.white, [xa, y0 + 0.15, z], [xb - xa, UPPER - y0, 0], [0, 0.85, 0]);
       still.panel(M.glass, C.white, (E.x0 + 0.4 + xa) / 2, z, [0, 1], xa - E.x0 - 0.4, y0 + 0.15, y0 + 1.0);
@@ -183,28 +194,39 @@ function escalators(cast, still, M) {
       for (let i = 1; i < rail.length; i++) cast.rod(M.satin, C.black, [rail[i - 1][0], rail[i - 1][1], z], [rail[i][0], rail[i][1], z], 0.04, 6);
     }
   }
+  // At the head, the balustrades' ends keep her on the plates (the bridge's edge is open to them).
+  for (const [z0, z1] of [[E.z0, E.z0 + 0.2], [mid - 0.16, mid + 0.16], [E.z1 - 0.2, E.z1]]) site.collide(R.comb1, z0, E.x1, z1, UPPER, UPPER + 1.1, { camera: false });
   // The bridge: the upper floor across the atrium, white fascias (galleries()), a soffit.
   const [b0, b1] = E.bridge;
   still.box(M.gloss, SLAB, b0, SOFFIT + 0.01, V.z0, b1, UPPER - 0.01, V.z1);
 }
 
-/** A glass lift: a round shaft on steel posts, the car at the bottom, the machine on top, a landing to the north gallery. */
-function lift(cast, still, M) {
-  const L = LIFT, top = UPPER_CEILING + 0.6;
-  still.cylinder(M.glass, C.white, L.x, 0.05, L.z, L.r, top - 0.05, 24);
-  for (let i = 0; i < 6; i++) {
-    const a = i * Math.PI / 3 + Math.PI / 6;
-    cast.cylinder(M.metal, C.white, L.x + Math.cos(a) * L.r, 0, L.z + Math.sin(a) * L.r, 0.05, top, 8);
+/**
+ * The glass lift's shaft: eight glass faces on white posts (open where its
+ * doors are: to the south below, to the north above; the doors and the car
+ * are GlassLift's), rings at the floors, the machine on top, call buttons,
+ * the landing to the north gallery.
+ */
+function lift(site, cast, still, M) {
+  const L = LIFT, top = UPPER_CEILING + 0.6, n = 8, door = 2.3;
+  for (let i = 0; i < n; i++) {
+    // Corners at odd eighths: flat faces to the south (-z) and the north.
+    const a = Math.PI / n + i * Math.PI * 2 / n, b = a + Math.PI * 2 / n, m = (a + b) / 2;
+    const ax = L.x + Math.cos(a) * L.r, az = L.z + Math.sin(a) * L.r, bx = L.x + Math.cos(b) * L.r, bz = L.z + Math.sin(b) * L.r;
+    const facing = [Math.cos(m), Math.sin(m)], w = Math.hypot(bx - ax, bz - az), s = Math.sin(m);
+    const spans = s < -0.99 ? [[door, top]] : s > 0.99 ? [[0.05, UPPER - 0.45], [UPPER + door, top]] : [[0.05, top]];
+    for (const [y0, y1] of spans) still.panel(M.glass, C.white, (ax + bx) / 2, (az + bz) / 2, facing, w, y0, y1);
+    cast.cylinder(M.metal, C.white, ax, 0, az, 0.05, top, 8);
   }
-  for (const y of [0, UPPER - 0.1, UPPER_CEILING - 0.2]) cast.cylinder(M.satin, C.white, L.x, y, L.z, L.r + 0.06, y ? 0.35 : 0.12, 24);
-  cast.cylinder(M.satin, C.white, L.x, top, L.z, L.r + 0.06, 0.3, 24);
-  // The car: a white frame with glass sides, lit inside, its door to the south.
-  cast.box(M.gloss, C.snow, L.x - 0.7, 0.12, L.z - 0.7, L.x + 0.7, 0.24, L.z + 0.7);
-  cast.box(M.gloss, C.snow, L.x - 0.7, 2.3, L.z - 0.7, L.x + 0.7, 2.45, L.z + 0.7);
-  for (const dx of [-0.66, 0.66]) for (const dz of [-0.66, 0.66]) cast.box(M.metal, C.steel, L.x + dx - 0.04, 0.24, L.z + dz - 0.04, L.x + dx + 0.04, 2.3, L.z + dz + 0.04);
-  still.flat(M.glow, C.light, L.x - 0.5, L.z - 0.5, L.x + 0.5, L.z + 0.5, 2.29, true);
-  cast.box(M.metal, C.steel, L.x - 0.45, 0.24, L.z - 0.7, L.x + 0.45, 2.3, L.z - 0.66);
+  for (const [y, h] of [[0, 0.04], [UPPER - 0.45, 0.45], [UPPER_CEILING - 0.2, 0.35], [top, 0.3]]) cast.cylinder(M.satin, C.white, L.x, y, L.z, L.r + 0.06, h, 24);
+  // A call button panel by each door.
+  for (const [z, y, f] of [[L.z - L.r - 0.05, 0, -1], [L.z + L.r + 0.05, UPPER, 1]]) {
+    still.box(M.metal, C.steel, L.x + 0.62, y + 1.0, z - 0.02, L.x + 0.74, y + 1.3, z + 0.02);
+    still.box(M.glow, C.light, L.x + 0.66, y + 1.12, z + f * 0.02, L.x + 0.7, y + 1.18, z + f * 0.03);
+  }
   still.box(M.gloss, SLAB, LIFT_BRIDGE.x0, SOFFIT + 0.01, L.z + L.r, LIFT_BRIDGE.x1, UPPER - 0.01, VOID.z1);
+  // Where she waits, marked on the floor.
+  for (const [z, y] of [[LIFT_DOORS.ground, 0.012], [LIFT_DOORS.upper, UPPER + 0.012]]) still.flat(M.matte, C.navy, L.x - 0.5, z - 0.3, L.x + 0.5, z + 0.3, y);
 }
 
 /** The fountain: a tiled basin with a stone rim, water, a column with a bowl, jets; the ring light over it. */

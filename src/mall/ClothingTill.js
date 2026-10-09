@@ -19,7 +19,7 @@ import { tone } from './Tones.js';
  * are served first.
  */
 
-const LOOK = { base: 'girl_dress', hair: '#2b2b33', top: '#f2a7bd', bottom: '#f6f0ea', height: 1.6, gender: 'f' };
+export const LOOK = { base: 'girl_dress', hair: '#2b2b33', top: '#f2a7bd', bottom: '#f6f0ea', height: 1.6, gender: 'f' };
 const FOLD_LEN = 0.4;     // a folded garment's length, of the hanging one
 const HANDLE = 0.39;      // the bag's handles' top above its base (FashionPrint.bag)
 // Across the counter (m from the register, toward her): she stands at its

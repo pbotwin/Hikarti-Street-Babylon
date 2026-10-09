@@ -10,8 +10,10 @@ import { buildStorefronts } from './MallStorefronts.js';
 import { buildMarket } from './MallMarket.js';
 import { buildBoutique } from './MallBoutique.js';
 import { buildLot } from './MallLot.js';
-import { planLayout, siteTransform } from './MallPlan.js';
+import { COURT_W, planLayout, siteTransform } from './MallPlan.js';
 import { MallNav } from './MallNav.js';
+import { Escalators } from './Escalators.js';
+import { GlassLift } from './GlassLift.js';
 import { IndoorLight, SHOP_RIG } from '../core/IndoorLight.js';
 
 /**
@@ -22,6 +24,9 @@ import { IndoorLight, SHOP_RIG } from '../core/IndoorLight.js';
  * lighting inside the entrance: the game's sunset outside, the store rig
  * inside (IndoorLight, as in the walk-in shops) with a photo of the store,
  * taken once at load, as its reflections and bounce light.
+ *
+ * The escalators run and carry her (and shoppers: `escalators`), the
+ * glass lift takes her between the floors.
  *
  * Anyone who should open the automatic doors (shoppers) is added to
  * `walkers` (objects with a world `position`).
@@ -36,6 +41,8 @@ import { IndoorLight, SHOP_RIG } from '../core/IndoorLight.js';
 const ORIGIN = { x: -650, z: -200 };
 // How far in from the entrances' doorways (m) the store light fades in, and back out.
 const IN_AT = 2.5, OUT_AT = 0.8;
+// Half an entrance court's width, and a little: the lot side of the doors is outdoors only there.
+const COURT = COURT_W / 2 + 0.5;
 /**
  * The store's light: the shops' rig dimmed (at full strength the white
  * walls, floors and ceiling read washed out: mean screen brightness 161–167
@@ -78,7 +85,8 @@ export class MallWorld {
 
     this.mats = new MallMaterials(scene);
     this.signs = new MallSigns(scene);
-    const site = this.site = new SiteBuilder(scene, root, siteTransform(ORIGIN), collision);
+    const T = siteTransform(ORIGIN);
+    const site = this.site = new SiteBuilder(scene, root, T, collision);
     buildBuilding(site, this.mats, this.signs);
     const concourse = buildConcourse(site, this.mats, this.signs);
     buildStorefronts(site, this.mats, this.signs);
@@ -88,8 +96,11 @@ export class MallWorld {
     const { meshes, casters } = site.build();
     this.doors = new MallDoors(scene, root, this.mats, ORIGIN);
     this.doors.build(coolers);
-    this.meshes = [...meshes, ...this.lot.meshes, ...this.doors.meshes, ...this.curtains.meshes];
-    this.casters = [...casters, ...this.lot.casters];
+    this.escalators = new Escalators(this.ctx, root, this.mats, T);
+    this.lift = new GlassLift(this.ctx, root, this.mats, T, this.layout.lift.floors);
+    const steps = this.escalators.build(), car = this.lift.build();
+    this.meshes = [...meshes, ...this.lot.meshes, ...this.doors.meshes, ...this.curtains.meshes, ...steps, ...car.meshes];
+    this.casters = [...casters, ...this.lot.casters, ...car.casters];
     graphics.addCasters(this.casters);
 
     this.indoor = new IndoorLight(graphics, this.ctx.character, MALL_RIG);
@@ -134,6 +145,8 @@ export class MallWorld {
     people.push(p);
     for (const w of this.walkers) people.push(w.position);
     this.doors.update(dt, people);
+    this.escalators.update(dt);
+    this.lift.update(dt);
     this.lot.cars.update(this.ctx.camera.position, ORIGIN);
     this._light(p, dt);
   }
@@ -153,8 +166,14 @@ export class MallWorld {
     let depth = -1;
     if (p.x > b.x0 && p.x < b.x1 && p.z > b.z0 && p.z < b.z1) {
       depth = Infinity;
-      // Behind the doors' line (an entrance faces out: forward = (sin yaw, cos yaw)).
-      for (const e of this.layout.entrances) depth = Math.min(depth, (e.x - p.x) * Math.sin(e.yaw) + (e.z - p.z) * Math.cos(e.yaw));
+      // Behind the doors' line (an entrance faces out: forward = (sin yaw, cos yaw)), in
+      // its court: beside the courts (the shops along the front, the café's window)
+      // and upstairs she came in through one of them, so is deep inside.
+      for (const e of this.layout.entrances) {
+        const s = Math.sin(e.yaw), c = Math.cos(e.yaw);
+        if (p.y > 2 || Math.abs((p.x - e.x) * c - (p.z - e.z) * s) > COURT) continue;
+        depth = Math.min(depth, (e.x - p.x) * s + (e.z - p.z) * c);
+      }
     }
     const inside = depth > (this._inside ? OUT_AT : IN_AT);
     if (inside !== this._inside) {
@@ -164,9 +183,9 @@ export class MallWorld {
     this.indoor.update(dt);
   }
 
-  prompt() { return null; }
+  prompt() { return this.lift.prompt(); }
 
-  get busy() { return false; }
+  get busy() { return this.lift.busy; }
 
   dispose() {
     const { graphics, collision, scene } = this.ctx;
@@ -175,6 +194,8 @@ export class MallWorld {
       this.indoor.leave(scene.meshes.filter((m) => m.isEnabled() && !mine.has(m)));
     }
     graphics.removeCasters(this.casters);
+    this.escalators.dispose();
+    this.lift.dispose();
     for (const m of this.meshes) m.dispose();
     this.lot.dispose();
     for (const n of this.curtains.nodes) n.dispose();

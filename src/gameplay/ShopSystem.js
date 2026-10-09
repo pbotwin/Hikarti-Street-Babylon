@@ -47,6 +47,8 @@ const STOREFRONTS = [
 ];
 
 const REACH = 1.9;          // m from the counter
+// Kept in her Bag, not used: the mall's groceries and shop goods.
+const KEPT = new Set(['pantry', 'goods']);
 const RUN_BOOST = 1.25;     // run speed ×
 const JUMP_BOOST = 1.18;    // jump velocity × (≈1.9 m apex instead of 1.35)
 // Outfit parts she wears garments on (the hair is only dyed).
@@ -386,8 +388,9 @@ export class ShopSystem {
   /** Bag sections: items to use, reading, wardrobe and keys. */
   renderBag(el, rerender) {
     const ids = (pred) => Object.keys(ITEMS).filter((id) => pred(ITEMS[id], id));
-    const items = ids((it, id) => this.inventory[id] > 0 && it.kind !== 'pantry');
+    const items = ids((it, id) => this.inventory[id] > 0 && !KEPT.has(it.kind));
     const pantry = ids((it, id) => this.inventory[id] > 0 && it.kind === 'pantry');
+    const goods = ids((it, id) => this.inventory[id] > 0 && it.kind === 'goods');
     const reading = ids((it, id) => it.kind === 'read' && this.owned.has(id));
     const wardrobe = ids((it, id) => WEARABLE.has(it.kind) && this.owned.has(id));
     const keys = ids((it, id) => it.kind === 'vehicle' && this.owned.has(id));
@@ -395,6 +398,7 @@ export class ShopSystem {
     el.insertAdjacentHTML('beforeend', `
       <div class="bag-section"><h3>Items</h3>${items.length ? items.map((id) => chip(id, `<button class="pill" data-use="${id}">${ITEMS[id].kind === 'drink' ? 'Drink' : 'Eat'}</button>`)).join('') : '<p class="muted">Buy drinks and snacks at shops and vending machines.</p>'}</div>
       ${pantry.length ? `<div class="bag-section"><h3>Pantry</h3>${pantry.map((id) => chip(id, '<span class="muted">From Hikari Mall</span>')).join('')}</div>` : ''}
+      ${goods.length ? `<div class="bag-section"><h3>Hikari Mall</h3>${goods.map((id) => chip(id, '<span class="muted">Bought at the mall</span>')).join('')}</div>` : ''}
       ${reading.length ? `<div class="bag-section"><h3>Reading</h3>${reading.map((id) => chip(id, `<button class="pill" data-read="${id}">Read</button>`)).join('')}</div>` : ''}
       <div class="bag-section"><h3>Wardrobe</h3>${wardrobe.map((id) => chip(id, this.outfit[ITEMS[id].kind] === id ? '<button class="pill on" disabled>Wearing</button>' : `<button class="pill" data-wear="${id}">Wear</button>`)).join('')}</div>
       ${keys.length ? `<div class="bag-section"><h3>Keys</h3>${keys.map((id) => chip(id, '<span class="muted">On the Hikari Motors lot</span>')).join('')}</div>` : ''}`);

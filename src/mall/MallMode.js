@@ -3,7 +3,8 @@ import { MallWorld } from './MallWorld.js';
 import { MallShopping } from './MallShopping.js';
 import { MallFashion } from './MallFashion.js';
 import { MallShoppers } from './MallShoppers.js';
-import { TRIP_BUDGET, GROCERY_BY_ID, CLOTHES_BY_ID } from './MallCatalog.js';
+import { MallShops } from './MallShops.js';
+import { TRIP_BUDGET, GROCERY_BY_ID, CLOTHES_BY_ID, GOODS_BY_ID } from './MallCatalog.js';
 
 /**
  * Shopping mode: a trip to Hikari Mall (see MALL.md). Started from the title
@@ -56,7 +57,7 @@ export class MallMode {
     d.ui.setLoading(0.45, 'Stocking the shelves…');
     // Shopping takes the clothing store's bags to the cart and the boot.
     const fashion = ctx.fashion = new MallFashion(ctx);
-    this.modules = [world, new MallShopping(ctx), fashion, new MallShoppers(ctx)];
+    this.modules = [world, new MallShopping(ctx), fashion, new MallShops(ctx), new MallShoppers(ctx)];
     await Promise.all(this.modules.slice(1).map((m) => m.init()));
     this._restale();
     d.ui.setLoading(0.85, 'Opening the doors…');
@@ -274,7 +275,7 @@ function makeWallet(coins) {
     },
     /** A bought item on the receipt (by catalog id). */
     add(id, qty = 1) {
-      const item = GROCERY_BY_ID[id] || CLOTHES_BY_ID[id];
+      const item = GROCERY_BY_ID[id] || CLOTHES_BY_ID[id] || GOODS_BY_ID[id];
       if (!item) return;
       const line = this.receipt.find((e) => e.id === id);
       if (line) line.qty += qty;

@@ -198,8 +198,60 @@ export const CLOTHES = [
   c('mallSneakBlack', 'Black sneakers', 'shoes', '#222226', 40, 'sneakers', { brand: 'Kaze', fabric: 'canvas', accent: '#e8e4da', print: 'kaze' }),
 ];
 
+/**
+ * What the concourse's small shops and the upper floor's rooms sell (the
+ * anchors' goods are above): { id, name, shop, price, look: { shape, color },
+ * kind?, boost? }. `shop` is the walk-in shop's kind (MallPlan SHOPS), the
+ * shape one of the walk-in shops' product shapes (src/interiors/Products.js
+ * SHAPES), printed from their label atlas. Food and drinks keep their boost
+ * as ShopData items; the rest is kept in her Bag (kind 'goods').
+ */
+const s = (id, name, shop, price, shape, color, extra = {}) => ({ id, name, shop, price, look: { shape, color }, kind: 'goods', ...extra });
+const food = (jump) => ({ kind: 'food', boost: { jump } });
+const drink = (run) => ({ kind: 'drink', boost: { run } });
+export const SHOP_GOODS = [
+  s('mallManga', 'Manga vol. 3', 'books', 8, 'book', '#e05a7a'),
+  s('mallArtBook', 'Hikari art book', 'books', 14, 'book', '#3a6fb0'),
+  s('mallMagazine', 'Weekly Shoujo', 'books', 5, 'magazine', '#f2a7bd'),
+  s('mallEarbuds', 'Wireless earbuds', 'denki', 30, 'box', '#f4f4f2'),
+  s('mallPhoneCase', 'Sakura phone case', 'denki', 12, 'dye', '#f6c1d1'),
+  s('mallBattery', 'Power bank', 'denki', 18, 'dye', '#2a2b2e'),
+  s('mallLotion', 'Peach hand cream', 'drug', 6, 'jar', '#f7c6d3'),
+  s('mallSunscreen', 'Sunscreen SPF 50', 'drug', 8, 'bottle', '#f3d54a'),
+  s('mallVitaminDrink', 'Vitamin C drink', 'drug', 3, 'bottle', '#f29a2e', drink(40)),
+  s('mallNotebook', 'Kawaii notebook', 'hyaku', 1, 'book', '#9fd0f0'),
+  s('mallStickers', 'Sticker sheet', 'hyaku', 1, 'dye', '#c4b2e8'),
+  s('mallLunchBox', 'Lunch box', 'hyaku', 2, 'box', '#a8e0c4'),
+  s('mallShortcake', 'Strawberry shortcake', 'cafe', 6, 'box', '#f7d6de', food(60)),
+  s('mallCroissant', 'Butter croissant', 'cafe', 3, 'bun', '#d9a066', food(40)),
+  s('mallCafeLatte', 'Café latte', 'cafe', 5, 'cup', '#e8d4b8', drink(60)),
+  s('mallRobotKit', 'Robot model kit', 'toys', 20, 'box', '#2f6fb3'),
+  s('mallPuzzle', 'Jigsaw puzzle', 'toys', 12, 'box', '#f2c230'),
+  s('mallCapsuleFigure', 'Mini figure', 'toys', 4, 'jar', '#e2574c'),
+  s('mallInsoles', 'Comfort insoles', 'shoes', 6, 'dye', '#5a7aa6'),
+  s('mallShoeCare', 'Sneaker cleaner', 'shoes', 7, 'bottle', '#ffffff'),
+  s('mallGyozaBox', 'Gyoza to go', 'ramen', 6, 'box', '#f4e2b8', food(60)),
+  s('mallRamenTakeout', 'Ramen to go', 'ramen', 9, 'bowl', '#c8553d', food(90)),
+  s('mallPrizeFigure', 'Prize figure', 'games', 10, 'box', '#f2a7bd'),
+  s('mallGameCard', 'Game card', 'games', 5, 'dye', '#5b2a86'),
+  s('mallTakoyaki', 'Takoyaki ×6', 'foodcourt', 6, 'box', '#d9a066', food(75)),
+  s('mallBubbleTea', 'Bubble tea', 'foodcourt', 5, 'cup', '#c9a27a', drink(60)),
+  s('mallUdon', 'Kitsune udon', 'foodcourt', 7, 'bowl', '#f4ead8', food(90)),
+  s('mallMelonSoda', 'Melon soda', 'foodcourt', 4, 'cup', '#8fd18a', drink(45)),
+  s('mallPopcorn', 'Caramel popcorn', 'cinema', 5, 'box', '#f2d43a', food(45)),
+  s('mallCinemaSoda', 'Cinema cola', 'cinema', 4, 'cup', '#b3202a', drink(45)),
+  s('mallPamphlet', 'Film pamphlet', 'cinema', 8, 'magazine', '#26324a'),
+  s('mallParfait', 'Matcha parfait', 'tea', 7, 'cup', '#a8d08d', food(75)),
+  s('mallMatchaLatte', 'Matcha latte', 'tea', 5, 'cup', '#7fb069', drink(60)),
+  s('mallTaiyaki', 'Taiyaki', 'tea', 3, 'bun', '#c98a4b', food(45)),
+  s('mallTote', 'Canvas tote', 'bags', 15, 'bag', '#e8dcc4'),
+  s('mallHairClip', 'Ribbon hair clip', 'bags', 4, 'dye', '#e27c9a'),
+  s('mallKeychain', 'Sakura keychain', 'bags', 3, 'dye', '#f6dbe3'),
+];
+
 /** Money for one trip (mall gift card); what isn't spent stays at the mall. */
 export const TRIP_BUDGET = 400;
 
 export const GROCERY_BY_ID = Object.fromEntries(GROCERIES.map((p) => [p.id, p]));
 export const CLOTHES_BY_ID = Object.fromEntries(CLOTHES.map((p) => [p.id, p]));
+export const GOODS_BY_ID = Object.fromEntries(SHOP_GOODS.map((p) => [p.id, p]));

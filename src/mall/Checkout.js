@@ -26,7 +26,7 @@ const GAP = 0.035;            // m between things on the belt
 const EDGE = 0.55;            // m from the belt's line to her, standing at the counter (its half width, 0.45 m, and her body)
 const LEAN = 0.3;             // her crouch (her back bending in) reaching across the counter
 const RIM = 0.99;             // a cart basket's top rim, which what comes out is lifted over
-const CASHIERS = [
+export const CASHIERS = [
   { base: 'girl_apron', hair: '#3a2a24', top: '#2f8f5b', bottom: '#2b2b33', height: 1.6, gender: 'f' },
   { base: 'boy_uniform', hair: '#2a2420', top: '#2f8f5b', bottom: '#33363c', height: 1.72, gender: 'm' },
   { base: 'girl_bob', hair: '#1f1b1a', top: '#2f8f5b', bottom: '#2b2b33', height: 1.58, gender: 'f' },

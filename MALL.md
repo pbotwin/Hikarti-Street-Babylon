@@ -13,10 +13,11 @@ leaks, clean code, same style as the rest of the game.
 |---|---|---|
 | `src/mall/MallMode.js` | start / finish a trip, pausing the city, prompts, wallet, HUD, receipt | integrator |
 | `src/mall/MallCatalog.js` | products and clothes (data) | integrator |
-| `src/mall/MallWorld.js` (+ helpers) | the site: building, lot, shops' fixtures, lighting, doors, collisions, `layout` | world |
+| `src/mall/MallWorld.js` (+ helpers) | the site: building, lot, shops' fixtures, lighting, doors, escalators and lift (`Escalators.js`, `GlassLift.js`, `Ride.js`), collisions, `layout` | world |
 | `src/mall/MallShopping.js` (+ `Cart.js`, `Checkout.js`, `Boot.js`…) | carts, taking products, checkout, bags, loading the car, driving away | shopping |
 | `src/mall/MallFashion.js` (+ `FittingRoom.js`…) | racks, carrying clothes, fitting rooms, the clothing till | fashion |
-| `src/mall/MallShoppers.js` | resident shoppers with carts / baskets | shoppers |
+| `src/mall/MallShops.js` (+ `ShopTill.js`) | the small shops' goods, clerks and tills: taking, ordering, paying, paper bags | world |
+| `src/mall/MallShoppers.js` | resident shoppers with carts / baskets, strolling round the small shops | shoppers |
 
 Each module is constructed by MallMode with the shared **context** (below) and
 implements:
@@ -44,6 +45,8 @@ layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
   (money for this trip, `TRIP_BUDGET` from the catalog).
 - `hud`: `{ toast(title, sub), panel(name, html|null) }` small DOM helpers;
   modules add their own DOM under `#ui` and remove it in `dispose()`.
+- `fashion.addBag(mesh, items)`: a paid bag from another shop into her hand
+  (it goes to the cart and the boot with the clothing store's bags).
 - Heroine hooks: `animation.act.hands = { wl, wr, l:[x,y,z], r:[x,y,z] }` puts
   both hands on world points (cart handle, hangers); `act.reach / holdR / bag /
   crouch / carry` as in the walk-in shops; `player.restrict = { maxSpeed, jump }`
@@ -81,14 +84,30 @@ layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
     fittingRooms: [{ id, door: { x, z, yaw }, inside: { x, z, yaw }, mirror: { x, y, z, yaw }, hook: [x,y,z], curtain: 'nodeName' }],
     till: { stand: { x, z, yaw }, register: [x,y,z], cashier: { x, z, yaw } },
   },
-  nav: { nodes: [[x, z], …], links: [[a, b], …] },   // walkable graph (shoppers, carts): lot, courts, concourse, both shops
-  //   MallWorld builds one MallNav on it (`world.nav`), shared by the shoppers and her scripted walks
+  nav: { nodes: [[x, z, y], …], links: [[a, b], …], rides: [[from, to, ride], …] },
+  //   walkable graph (shoppers, carts): lot, courts, concourse, the anchors, every small shop, the upper
+  //   floor (nodes with y = upper.y); `rides` are the escalators, one way (an index into `rides` below).
+  //   MallWorld builds one MallNav on it (`world.nav`), shared by the shoppers and her scripted walks:
+  //   path(x0, z0, x1, z1, out, y0, y1) finds routes on and between the floors (a point reached by a
+  //   ride has its index in `ride`; `world.escalators.rider()/carry()` move a shopper along it)
   lot: { bays: [{ x, z, yaw }], walkways: [{ x0, z0, x1, z1 }] },
   concourse: {
     zone: { x0, z0, x1, z1 },                          // the ground floor's walk between the shop row and the anchors
     atrium: { x0, z0, x1, z1 },                        // its middle, open to the skylight (fountain, escalators, lift, trees)
     storefronts: [{ kind, x, z, yaw, w }],             // a spot before each small shop's window, facing it (window shopping)
   },
+  upper: { y, ceilingY, zone: { x0, z0, x1, z1 }, void: { x0, z0, x1, z1 } },   // the upper floor: galleries round the atrium (void)
+  shops: [{                                            // every walk-in shop but the anchors: the shop row's nine, the upper floor's rooms
+    kind, name, y,                                     // y: its floor (0 or upper.y)
+    zone: { x0, z0, x1, z1 }, door: { x, z, yaw, w },  // the room; its doorway (yaw facing out to the concourse / gallery)
+    tills: [{ name, top, counter: { x0, z0, x1, z1 }, face: { x, z },   // face: from the clerk toward the customer
+              clerk: { x, z, yaw }, lay: [x,y,z], bag: [x,y,z], register: [x,y,z],
+              goods: [{ id, x, y, z, yaw, pick: { x, z, yaw } }] }],    // sold from behind the counter (MallCatalog SHOP_GOODS)
+    goods: [{ id, x, y, z, yaw }], table: { x0, z0, x1, z1, top } | null, // on its display table, taken by her
+    browse: [{ x, z, yaw }], buy: { x, z, yaw },       // where shoppers look round / pay
+  }],
+  rides: [{ id, up, from: { x, z, y }, to: { x, z, y }, yaw }],   // the escalators' ends (where riders get on / off)
+  lift: { shaft: { x, z, r }, floors: [{ x, z, y, yaw }] },       // the glass lift; where she calls it on each floor
 }
 ```
 
@@ -104,10 +123,18 @@ round an **atrium** under a glazed lantern (escalators to a bridge, a glass
 lift, a fountain under a ring light, trees, the information desk, a crêpe
 stand, capsule toys, photo booths, vending machines, the season's
 banners). The **anchors** open onto it from the far side: Hikari Fresh
-Market and Sakura Style, the service front (restrooms) between them. The
-upper floor's shops are seen, not entered; she walks the ground floor.
-The small shops are closed fronts (glass, a lit and furnished room
-behind); nothing in them can be taken. Everything standing on the
+Market and Sakura Style, the service front (restrooms) between them. Every
+small shop is walked into (an open doorway in its glass front): a
+furnished room, a clerk at its till, goods to buy (MallShops: "Take" from
+a display table and "Pay" at the till, or "Order" across the counter;
+the clerk bags it, she taps her card and takes the paper bag). The
+**upper floor** is walked too: she rides the escalators (walking onto a
+band's landing plate; the stick walks her up the steps) or the glass
+lift ("Lift"); its galleries and the bridge have balustrades, and four
+rooms open off them (`UPPER_ROOMS`: the food court with two stalls, the
+cinema's lobby, a tea house, a bag shop); the other upper fronts are
+windows onto a picture of the shop. Shoppers stroll round the small
+shops too, upstairs by escalator. Everything standing on the
 concourse floor is listed by `concourseObstacles()` (collisions; the walk
 graph keeps 0.45 m clear of it, tested in `scripts/mall-plan.test.mjs`).
 

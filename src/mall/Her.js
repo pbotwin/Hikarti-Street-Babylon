@@ -74,8 +74,9 @@ export class Her extends Grip {
           };
           for (const p of [...(goal.via || []), goal]) {
             const q = path[path.length - 1];
-            if (this.nav && !this.nav.clear(q.x, q.z, p.x, p.z, BODY)) {
-              this.nav.path(q.x, q.z, p.x, p.z, _route);
+            const y = this.player.position.y;
+            if (this.nav && !this.nav.clear(q.x, q.z, p.x, p.z, BODY, y)) {
+              this.nav.path(q.x, q.z, p.x, p.z, _route, y);
               for (let i = 0; i < _route.count; i++) add(_route[i].x, _route[i].z);
             } else add(p.x, p.z);
           }

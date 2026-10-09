@@ -58,7 +58,7 @@ export class MallShoppers {
     this.cars = parkedCars(layout);
     this.group = new TransformNode('mall shoppers', scene);
     this.group.freezeWorldMatrix();
-    this.mind = new ShopperMind({ layout, nav: this.ctx.world.nav, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers,
+    this.mind = new ShopperMind({ layout, nav: this.ctx.world.nav, escalators: this.ctx.world.escalators, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers,
       // The clothing store's fitting rooms (shared with her: `inUse` while someone is in one).
       rooms: () => this.ctx.fashion?.rooms || [] });
     for (const id of ids) {
@@ -87,7 +87,7 @@ export class MallShoppers {
     const s = {
       index, item, id: item.id, name: item.name, look: item.look, vrm: item.vrm, root, label, position: root.position,
       away: true, shown: false, done: false, arriveT: Infinity, awayT: 0, bay: null,
-      want: null, kind: null, room: null, hidden: false, clothes: false, stage: 'arrive', plan: [], step: null, t: 0, sub: 0, k: 0, wait: 0,
+      want: null, kind: null, room: null, hidden: false, clothes: false, stage: 'arrive', plan: [], step: null, t: 0, sub: 0, k: 0, wait: 0, ride: null, rideState: null,
       route: Object.assign([], { count: 0 }), ri: 0, prog: { x: 0, z: 0, t: 0 }, snags: 0,
       facing: 0, facingTarget: 0, moving: false, moveSpeed: 0, speed: 0, walkPhase: 0, lookYaw: 0, pace: rnd(0.88, 1.1),
       act: null, actK: 0, hands: { l: null, r: null, lean: 0, pitch: 0 },

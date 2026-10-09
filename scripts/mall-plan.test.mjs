@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planLayout, parkedCars, siteTransform, concourseObstacles } from '../src/mall/MallPlan.js';
-import { AISLES, RACKS } from '../src/mall/MallCatalog.js';
+import { AISLES, RACKS, SHOP_GOODS, GOODS_BY_ID } from '../src/mall/MallCatalog.js';
 
 // Hikari Mall's layout is the contract the shopping, fashion and shopper
 // modules build on (MALL.md): check it is complete and self-consistent.
@@ -10,7 +10,7 @@ const lay = planLayout(origin);
 const inRect = (r, x, z, m = 0) => x >= r.x0 - m && x <= r.x1 + m && z >= r.z0 - m && z <= r.z1 + m;
 
 test('layout has every MALL.md field', () => {
-  for (const k of ['origin', 'bounds', 'building', 'spawn', 'car', 'exit', 'entrances', 'cartCorrals', 'grocery', 'checkouts', 'fashion', 'nav', 'lot', 'concourse']) assert.ok(lay[k], k);
+  for (const k of ['origin', 'bounds', 'building', 'spawn', 'car', 'exit', 'entrances', 'cartCorrals', 'grocery', 'checkouts', 'fashion', 'nav', 'lot', 'concourse', 'shops', 'upper', 'rides', 'lift']) assert.ok(lay[k], k);
   assert.equal(lay.car.model, 'car_kei_pink');
   assert.ok(lay.building.ceilingY > lay.building.floorY);
 });
@@ -59,18 +59,55 @@ test('parked cars stay out of her bay and the one she drives through', () => {
   assert.ok(free.length > 20 && free.length < lay.lot.bays.length);
 });
 
-test('walk graph is one connected piece with no zero-length links', () => {
-  const { nodes, links } = lay.nav;
-  const adj = nodes.map(() => []);
+test('walk graph is one connected piece with no zero-length links, both floors joined by the escalators', () => {
+  const { nodes, links, rides } = lay.nav;
+  const fwd = nodes.map(() => []), back = nodes.map(() => []);
   for (const [a, b] of links) {
     assert.notEqual(a, b);
     assert.ok(Math.hypot(nodes[a][0] - nodes[b][0], nodes[a][1] - nodes[b][1]) > 0.1);
-    adj[a].push(b); adj[b].push(a);
+    assert.equal(nodes[a][2], nodes[b][2], 'a walk stays on its floor');
+    fwd[a].push(b); fwd[b].push(a); back[a].push(b); back[b].push(a);
   }
-  const seen = new Set([0]), stack = [0];
-  while (stack.length) for (const n of adj[stack.pop()]) if (!seen.has(n)) { seen.add(n); stack.push(n); }
-  assert.equal(seen.size, nodes.length);
+  // Rides go one way: every node reachable from the lot, and the lot from every node.
+  for (const [a, b, i] of rides) {
+    const r = lay.rides[i];
+    assert.ok(r && Math.hypot(nodes[a][0] - r.from.x, nodes[a][1] - r.from.z) < 1e-6 && nodes[a][2] === r.from.y, `ride ${i} starts at its node`);
+    assert.ok(Math.hypot(nodes[b][0] - r.to.x, nodes[b][1] - r.to.z) < 1e-6 && nodes[b][2] === r.to.y, `ride ${i} ends at its node`);
+    fwd[a].push(b); back[b].push(a);
+  }
+  for (const adj of [fwd, back]) {
+    const seen = new Set([0]), stack = [0];
+    while (stack.length) for (const n of adj[stack.pop()]) if (!seen.has(n)) { seen.add(n); stack.push(n); }
+    assert.equal(seen.size, nodes.length);
+  }
+  assert.deepEqual([...new Set(nodes.map((n) => n[2]))].sort(), [0, lay.upper.y]);
+  assert.deepEqual(lay.rides.map((r) => r.up), [true, false], 'one escalator up, one down');
   for (const [x, z] of nodes) assert.ok(inRect(lay.bounds, x, z));
+});
+
+test('walk-in shops: tills, goods and the walk graph inside every one', () => {
+  assert.ok(lay.shops.filter((s) => !s.y).length >= 9 && lay.shops.filter((s) => s.y).length >= 4);
+  const sold = new Set();
+  const { nodes } = lay.nav;
+  for (const s of lay.shops) {
+    assert.ok(s.tills.length >= 1, s.kind);
+    assert.ok(s.y === 0 || s.y === lay.upper.y, s.kind);
+    const inZone = (x, z) => inRect(s.zone, x, z), Z = s.zone;
+    assert.ok(Math.abs(s.door.z - Z.z0) < 1e-6 || Math.abs(s.door.z - Z.z1) < 1e-6, `${s.kind} door on its front`);
+    for (const t of s.tills) {
+      for (const p of [t.clerk, { x: t.lay[0], z: t.lay[2] }, { x: t.register[0], z: t.register[2] }]) assert.ok(inZone(p.x, p.z), `${s.kind} till`);
+      assert.ok(Math.abs(Math.hypot(t.face.x, t.face.z) - 1) < 1e-9 && t.top > s.y);
+      for (const g of t.goods) { sold.add(g.id); assert.equal(GOODS_BY_ID[g.id]?.shop, s.kind, g.id); assert.ok(inZone(g.x, g.z) && inZone(g.pick.x, g.pick.z), g.id); }
+    }
+    for (const g of s.goods) {
+      sold.add(g.id);
+      assert.equal(GOODS_BY_ID[g.id]?.shop, s.kind, g.id);
+      assert.ok(inRect(s.table, g.x, g.z), `${g.id} on its table`);
+    }
+    for (const b of [...s.browse, s.buy]) assert.ok(inZone(b.x, b.z), `${s.kind} spot`);
+    assert.ok(nodes.filter(([x, z, y]) => y === s.y && inZone(x, z)).length >= 2, `${s.kind} on the walk graph`);
+  }
+  assert.deepEqual([...sold].sort(), SHOP_GOODS.map((g) => g.id).sort(), 'every good sold somewhere, once');
 });
 
 test('the concourse: shops along it, the walk graph on it and clear of what stands there', () => {
@@ -78,11 +115,13 @@ test('the concourse: shops along it, the walk graph on it and clear of what stan
   assert.ok(C.storefronts.length >= 8);
   for (const f of C.storefronts) assert.ok(inRect(C.zone, f.x, f.z), f.kind);
   const { nodes, links } = lay.nav;
-  assert.ok(nodes.filter(([x, z]) => inRect(C.zone, x, z)).length >= 20, 'the graph covers the concourse');
+  assert.ok(nodes.filter(([x, z, y]) => !y && inRect(C.zone, x, z)).length >= 20, 'the graph covers the concourse');
+  assert.ok(nodes.filter(([x, z, y]) => y && inRect(C.zone, x, z)).length >= 12, 'and the galleries over it');
   // Every walk keeps 0.45 m (a shopper, a cart's half width) from everything standing on the concourse floor.
   const T = siteTransform(origin), rects = concourseObstacles().map((o) => T.rect(o));
   const gap = (r, x, z) => Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
   for (const [a, b] of links) {
+    if (nodes[a][2]) continue;   // the upper floor's walks are above it all
     const [x0, z0] = nodes[a], [x1, z1] = nodes[b], n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.1);
     for (let i = 0; i <= n; i++) {
       const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;

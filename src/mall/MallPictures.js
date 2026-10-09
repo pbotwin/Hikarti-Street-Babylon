@@ -351,6 +351,12 @@ export function pictures() {
       const rows = [['Sakura Latte', '480'], ['Melon Pan', '220'], ['Matcha Roll', '380'], ['Strawberry Shortcake', '450']];
       rows.forEach(([n, p], i) => { text(g, n, x + w * 0.08, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'left'); text(g, `¥${p}`, x + w * 0.92, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'right'); });
     }, 1.5],
+    cinemaMenu: [192, 96, (g, x, y, w, h) => {
+      g.fillStyle = '#1d1a2b'; g.fillRect(x, y, w, h);
+      text(g, 'TICKETS · SNACKS', x + w / 2, y + h * 0.14, h * 0.13, '#f2c230', 900);
+      const rows = [['Adult ticket', '1900'], ['Popcorn (salt / caramel)', '600'], ['Melon soda', '400'], ['Combo set', '950']];
+      rows.forEach(([n, p], i) => { text(g, n, x + w * 0.08, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'left'); text(g, `¥${p}`, x + w * 0.92, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'right'); });
+    }, 1.5],
     // ---------------------------------------------------------------- upper-floor interiors (self-lit, behind glass)
     roomShelves: [256, 128, room('#f2efe9', '#d8d1c6', '#2f6fb3', 'shelves'), 1.5],
     roomRacks: [256, 128, room('#f6f1ec', '#cdb89a', '#e27c9a', 'racks'), 1.5],
