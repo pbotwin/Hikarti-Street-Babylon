@@ -55,11 +55,16 @@ export class ShopperGear {
     graphics.addCasters([this.basket]);
     this.basketDirty = false;
     this.boxes = Array.from({ length: count }, () => ({ kind: null, cart: null, x: 0, y: 0, z: 0, yaw: 0, goods: [], bags: [] }));
+    this._trimmed = false;   // the pools drawn whole until the first frame of play (the warm-up)
   }
 
   // ------------------------------------------------------------ containers
-  /** Give shopper `i` a cart (standing at x, z, yaw), a basket or nothing (what was in it goes). */
-  setKind(i, kind, x = 0, z = 0, yaw = 0) {
+  /**
+   * Give shopper `i` a cart (`cart`: one of the fleet's, out of a corral;
+   * else a new one standing at x, z, yaw), a basket or nothing (what was
+   * in it goes).
+   */
+  setKind(i, kind, x = 0, z = 0, yaw = 0, cart = null) {
     const b = this.boxes[i];
     if (b.kind === kind) return;
     while (b.goods.length) this.drop(b.goods[b.goods.length - 1]);
@@ -67,8 +72,16 @@ export class ShopperGear {
     if (b.cart) { b.cart.dispose(); b.cart = null; }
     if (b.kind === 'basket') { write(this.basketMatrices, i, 0, 0, 0, 0, 0); this.basketDirty = true; }
     b.kind = kind;
-    if (kind === 'cart') b.cart = this.fleet.add({ x, z, yaw });
+    if (kind === 'cart') b.cart = cart || this.fleet.add({ x, z, yaw });
     if (kind) this.place(i, x, b.y, z, yaw);
+  }
+
+  /** Shopper `i` lets go of their emptied cart: it stays in the fleet, now the caller's (a corral's). */
+  leaveCart(i) {
+    const b = this.boxes[i], cart = b.cart;
+    b.cart = null;
+    this.setKind(i, null);
+    return cart;
   }
 
   /** The cart shopper `i` pushes (null: none). */
@@ -197,6 +210,12 @@ export class ShopperGear {
 
   /** Upload what moved this frame (one buffer update per mesh; the carts are the fleet's). */
   commit() {
+    if (!this._trimmed) {
+      // The pools were drawn whole for the warm-up; from now on only shapes in use (each was a draw in every view).
+      this._trimmed = true;
+      this.packs.trim();
+      this.garments.trim();
+    }
     this.packs.flush();
     this.garments.flush();
     this.bags.update();

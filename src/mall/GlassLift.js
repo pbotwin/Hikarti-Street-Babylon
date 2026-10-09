@@ -49,14 +49,22 @@ export class GlassLift {
       b.rod(M.chrome, C.steel, [s * 0.6, 0.95, -0.5], [s * 0.6, 0.95, 0.5], 0.02, 6);
     }
     this.carMeshes = b.build(this.car);
-    // The doors: per floor two leaves of glass in a white frame, parting sideways.
+    // The doors: per floor two leaves of glass in a slim steel frame, parting sideways.
     const lw = a * Math.tan(Math.PI / 8), d = new Batch(this.ctx.scene, 'mall:liftDoor');
     d.panel(M.glass, C.white, 0, 0, [0, 1], lw - 0.06, 0.06, DOOR_H - 0.06);
     for (const [x0, y0, x1, y1] of [[-lw / 2, 0, lw / 2, 0.06], [-lw / 2, DOOR_H - 0.06, lw / 2, DOOR_H], [-lw / 2, 0, -lw / 2 + 0.04, DOOR_H], [lw / 2 - 0.04, 0, lw / 2, DOOR_H]]) {
-      d.box(M.metal, C.white, x0, y0, -0.015, x1, y1, 0.015);
+      d.box(M.metal, C.steel, x0, y0, -0.015, x1, y1, 0.015);
     }
     this.doorMeshes = d.build(this.root);
     this.doors = [{ y: 0, z: L.z - a - 0.04 }, { y: UPPER, z: L.z + a + 0.04 }].map((door) => ({ ...door, w: lw }));
+    // Each doorway's steel jambs and the header strip over it (still: the leaves slide behind them).
+    const f = new Batch(this.ctx.scene, 'mall:liftFrame');
+    for (const door of this.doors) {
+      const z0 = door.z - 0.03, z1 = door.z + 0.03, y = door.y;
+      for (const s of [-1, 1]) f.box(M.metal, C.steel, L.x + s * lw - 0.03, y, z0, L.x + s * lw + 0.03, y + DOOR_H + 0.1, z1);
+      f.box(M.metal, C.steel, L.x - lw - 0.03, y + DOOR_H, z0, L.x + lw + 0.03, y + DOOR_H + 0.1, z1);
+    }
+    this.frameMeshes = f.build(this.root);
     this._matrices = new Float32Array(4 * 16);
     this._writeDoors();
     for (const m of this.doorMeshes) {
@@ -64,7 +72,7 @@ export class GlassLift {
       m.getBoundingInfo().reConstruct(new Vector3(L.x - 1.6, -0.1, L.z - 1.4), new Vector3(L.x + 1.6, UPPER + DOOR_H + 0.1, L.z + 1.4), m.getWorldMatrix());
       m.doNotSyncBoundingInfo = true;
     }
-    return { meshes: [...this.carMeshes, ...this.doorMeshes], casters: this.carMeshes.filter((m) => m.material !== M.glass && m.material !== M.glow) };
+    return { meshes: [...this.carMeshes, ...this.doorMeshes, ...this.frameMeshes], casters: this.carMeshes.filter((m) => m.material !== M.glass && m.material !== M.glow) };
   }
 
   _writeDoors() {

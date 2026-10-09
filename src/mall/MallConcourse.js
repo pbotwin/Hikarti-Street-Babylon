@@ -1,5 +1,6 @@
-import { Matrix, Mesh, VertexData } from '@babylonjs/core';
-import { C } from './MallKit.js';
+import { Matrix, VertexData } from '@babylonjs/core';
+import { C, shrub } from './MallKit.js';
+import { buildFountain } from './Fountain.js';
 import {
   CONCOURSE, VOID, UPPER, SOFFIT, UPPER_CEILING, ATRIUM_COLUMNS, ESCALATORS, FOUNTAIN, INFO_DESK, LIFT, TREE_PLANTERS,
   GACHA, PHOTO_BOOTHS, VENDING, BENCHES, KIOSK, TOTEMS, TOTEM_Z, RUN, LIFT_DOORS, concourseObstacles,
@@ -26,6 +27,7 @@ const LIFT_BRIDGE = { x0: LIFT.x - 0.9, x1: LIFT.x + 0.9 };
 const TREE_SCALE = 0.42;
 // Slab edges, the bridge and the lift's landing in one white: they read as one floor.
 const SLAB = C.snow;
+const FOLD = C.pink.scale(0.8);            // a photo booth's curtain, in the folds' shade
 
 export function buildConcourse(site, mats, signs) {
   const { cast, still } = site.zone('concourse');
@@ -98,12 +100,16 @@ function galleries(site, still, cast, M) {
     const spans = gap ? [[z0, gap[0]], [gap[1], z1]].map(([a, c]) => [x0, a, x1, c]) : [[x0, z0, x1, z1]];
     for (const [a0, b0, a1, b1] of spans) balustrade(site, still, M, a0 + f[0] * 0.08, b0 + f[1] * 0.08, a1 + f[0] * 0.08, b1 + f[1] * 0.08);
   }
-  // Planters along the galleries' fronts.
-  for (const x of [-27, -17, 6, 17, 28]) for (const z of [V.z0 - 0.9, V.z1 + 0.9]) {
-    cast.box(M.satin, C.charcoal, x - 0.7, UPPER, z - 0.3, x + 0.7, UPPER + 0.55, z + 0.3);
-    site.collide(x - 0.7, z - 0.3, x + 0.7, z + 0.3, UPPER, UPPER + 0.55, { camera: false });
-    for (const dx of [-0.4, 0, 0.4]) cast.sphere(M.matte, C.leaf, x + dx, UPPER + 0.75, z, 0.32, 0.9, 6);
-  }
+  // Planters along the galleries' fronts: a white trough with an oak rim, shrubs in flower.
+  [-27, -17, 6, 17, 28].forEach((x, i) => {
+    for (const z of [V.z0 - 0.9, V.z1 + 0.9]) {
+      cast.box(M.satin, C.snow, x - 0.7, UPPER, z - 0.3, x + 0.7, UPPER + 0.5, z + 0.3);
+      cast.box(M.satin, C.oak, x - 0.73, UPPER + 0.5, z - 0.33, x + 0.73, UPPER + 0.55, z + 0.33);
+      still.box(M.matte, C.soil, x - 0.64, UPPER + 0.5, z - 0.24, x + 0.64, UPPER + 0.53, z + 0.24);
+      site.collide(x - 0.7, z - 0.3, x + 0.7, z + 0.3, UPPER, UPPER + 0.55, { camera: false });
+      for (const dx of [-0.42, 0, 0.42]) shrub(still, M, x + dx, UPPER + 0.5, z, 0.26, [C.pink, C.white, C.yellow][(i + (dx > 0)) % 3]);
+    }
+  });
 }
 
 /** The strip along an axis-aligned edge between offsets a and b (m) on the side away from `f`: [x0, z0, x1, z1]. */
@@ -188,10 +194,15 @@ function escalators(site, cast, still, M) {
     for (const z of [z0 + 0.14, z1 - 0.14]) {
       still.face(M.glass, C.white, [xa, y0 + 0.15, z], [xb - xa, UPPER - y0, 0], [0, 0.85, 0]);
       still.panel(M.glass, C.white, (E.x0 + 0.4 + xa) / 2, z, [0, 1], xa - E.x0 - 0.4, y0 + 0.15, y0 + 1.0);
-      still.panel(M.glass, C.white, (xb + E.x1 - 0.2) / 2, z, [0, 1], E.x1 - 0.2 - xb, UPPER + 0.15, UPPER + 1.0);
+      still.panel(M.glass, C.white, (xb + E.x1 - 0.6) / 2, z, [0, 1], E.x1 - 0.6 - xb, UPPER + 0.15, UPPER + 1.0);
       cast.slope(M.metal, C.steel, xa, y0 + 0.16, xb, UPPER + 0.16, z - 0.07, z + 0.07, 0.16);
-      const rail = [[E.x0 + 0.4, y0 + 0.4], [E.x0 + 0.25, y0 + 0.8], [E.x0 + 0.45, y0 + 1.04], [xa, y0 + 1.04], [xb, UPPER + 1.04], [E.x1 - 0.2, UPPER + 1.04]];
-      for (let i = 1; i < rail.length; i++) cast.rod(M.satin, C.black, [rail[i - 1][0], rail[i - 1][1], z], [rail[i][0], rail[i][1], z], 0.04, 6);
+      // The handrail turns down into the newel at both ends (it used to stop dead at the head, an open black tube).
+      const rail = [[E.x0 + 0.4, y0 + 0.4], [E.x0 + 0.25, y0 + 0.8], [E.x0 + 0.45, y0 + 1.04], [xa, y0 + 1.04], [xb, UPPER + 1.04], [E.x1 - 0.65, UPPER + 1.04], [E.x1 - 0.45, UPPER + 0.8], [E.x1 - 0.6, UPPER + 0.4]];
+      for (let i = 1; i < rail.length; i++) {
+        cast.rod(M.satin, C.black, [rail[i - 1][0], rail[i - 1][1], z], [rail[i][0], rail[i][1], z], 0.04, 6);
+        // A ball at each bend closes the notch between the straight pieces.
+        if (i < rail.length - 1) cast.sphere(M.satin, C.black, rail[i][0], rail[i][1], z, 0.04, 1, 6);
+      }
     }
   }
   // At the head, the balustrades' ends keep her on the plates (the bridge's edge is open to them).
@@ -216,7 +227,7 @@ function lift(site, cast, still, M) {
     const facing = [Math.cos(m), Math.sin(m)], w = Math.hypot(bx - ax, bz - az), s = Math.sin(m);
     const spans = s < -0.99 ? [[door, top]] : s > 0.99 ? [[0.05, UPPER - 0.45], [UPPER + door, top]] : [[0.05, top]];
     for (const [y0, y1] of spans) still.panel(M.glass, C.white, (ax + bx) / 2, (az + bz) / 2, facing, w, y0, y1);
-    cast.cylinder(M.metal, C.white, ax, 0, az, 0.05, top, 8);
+    cast.cylinder(M.metal, C.white, ax, 0, az, 0.035, top, 8);
   }
   for (const [y, h] of [[0, 0.04], [UPPER - 0.45, 0.45], [UPPER_CEILING - 0.2, 0.35], [top, 0.3]]) cast.cylinder(M.satin, C.white, L.x, y, L.z, L.r + 0.06, h, 24);
   // A call button panel by each door.
@@ -229,26 +240,10 @@ function lift(site, cast, still, M) {
   for (const [z, y] of [[LIFT_DOORS.ground, 0.012], [LIFT_DOORS.upper, UPPER + 0.012]]) still.flat(M.matte, C.navy, L.x - 0.5, z - 0.3, L.x + 0.5, z + 0.3, y);
 }
 
-/** The fountain: a tiled basin with a stone rim, water, a column with a bowl, jets; the ring light over it. */
+/** The fountain (Fountain) and the ring light over it, on three wires from the lantern. */
 function fountain(cast, still, M) {
   const F = FOUNTAIN;
-  // Basin: tiled wall, water a little below its rounded stone rim.
-  cast.cylinder(M.gloss, C.teal, F.x, 0, F.z, F.r, 0.42, 32);
-  still.cylinder(M.gloss, C.water, F.x, 0.42, F.z, F.r - 0.08, 0.02, 32);
-  cast.shape(M.satin, C.stone, VertexData.CreateTorus({ diameter: F.r * 2 - 0.1, thickness: 0.18, tessellation: 40 }), Matrix.Translation(F.x, 0.46, F.z));
-  // Column and bowl, its water.
-  cast.cylinder(M.gloss, C.stone, F.x, 0.44, F.z, 0.32, 0.88, 16, 0.22);
-  cast.cylinder(M.gloss, C.stone, F.x, 1.32, F.z, 0.35, 0.14, 20, 1.0);
-  still.cylinder(M.gloss, C.water, F.x, 1.46, F.z, 0.9, 0.015, 20);
-  // Water: a tall jet from the bowl and a ring of low jets inside the rim (bright, unlit), the clear sheet falling off the bowl's lip.
-  const jet = C.cold.scale(0.9);
-  still.cylinder(M.glow, jet, F.x, 1.47, F.z, 0.05, 1.5, 8, 0.015);
-  still.shape(M.glass, C.water, VertexData.CreateCylinder({ height: 1.0, diameterTop: 2.04, diameterBottom: 2.3, tessellation: 28, cap: Mesh.NO_CAP, sideOrientation: Mesh.DOUBLESIDE }), Matrix.Translation(F.x, 0.94, F.z));
-  for (let i = 0; i < 16; i++) {
-    const a = i * Math.PI / 8, r = F.r - 0.45;
-    still.cylinder(M.glow, jet, F.x + Math.cos(a) * r, 0.44, F.z + Math.sin(a) * r, 0.035, 0.55 + (i % 2) * 0.25, 6, 0.012);
-  }
-  // The ring light over it, on three wires from the lantern.
+  buildFountain(cast, still, M);
   const ring = VertexData.CreateTorus({ diameter: 6, thickness: 0.16, tessellation: 40 });
   still.shape(M.glow, C.light, ring, Matrix.Translation(F.x, 8.6, F.z));
   still.shape(M.satin, C.white, VertexData.CreateTorus({ diameter: 6.1, thickness: 0.2, tessellation: 40 }), Matrix.Translation(F.x, 8.72, F.z));
@@ -260,31 +255,45 @@ function fountain(cast, still, M) {
 
 /** Seats, planted trees, the information desk, floor guides, the crêpe stand. */
 function furniture(cast, still, M, signs) {
+  // Benches: three oak slats on two steel frames.
   for (const [x, z] of BENCHES) {
-    cast.box(M.satin, C.oak, x - 0.9, 0.42, z - 0.25, x + 0.9, 0.48, z + 0.25);
-    for (const lx of [x - 0.75, x + 0.75]) cast.box(M.metal, C.frame, lx - 0.04, 0, z - 0.22, lx + 0.04, 0.42, z + 0.22);
-  }
-  // Trees in round planters, a wooden seat round each.
-  for (const t of TREE_PLANTERS) {
-    cast.cylinder(M.satin, C.stone, t.x, 0, t.z, t.r, 0.4, 28);
-    cast.cylinder(M.satin, C.oak, t.x, 0.4, t.z, t.r + 0.02, 0.06, 28);
-    cast.cylinder(M.gloss, C.charcoal, t.x, 0.46, t.z, t.r - 0.45, 0.44, 24);
-    // Soil sunk 1.5 cm into the rim: level with its top (0.9 m) the two fought.
-    still.cylinder(M.matte, C.soil, t.x, 0.865, t.z, t.r - 0.5, 0.02, 24);
-    for (let i = 0; i < 5; i++) {
-      const a = i * 1.26 + 0.3;
-      cast.sphere(M.matte, C.leaf, t.x + Math.cos(a) * (t.r - 0.8), 1.05, t.z + Math.sin(a) * (t.r - 0.8), 0.32, 0.7, 6);
+    for (const dz of [-0.17, 0, 0.17]) cast.box(M.satin, C.oak, x - 0.9, 0.42, z + dz - 0.075, x + 0.9, 0.47, z + dz + 0.075);
+    for (const lx of [x - 0.7, x + 0.7]) {
+      cast.box(M.metal, C.frame, lx - 0.03, 0.37, z - 0.24, lx + 0.03, 0.42, z + 0.24);
+      for (const lz of [z - 0.21, z + 0.21]) cast.box(M.metal, C.frame, lx - 0.03, 0, lz - 0.03, lx + 0.03, 0.37, lz + 0.03);
     }
   }
-  // Information desk: a round counter, a screen, the sign on a pole.
-  const D = INFO_DESK;
-  cast.cylinder(M.gloss, C.snow, D.x, 0, D.z, D.r, 1.0, 28);
-  cast.cylinder(M.satin, C.oak, D.x, 1.0, D.z, D.r + 0.06, 0.05, 28);
-  still.cylinder(M.satin, C.blue, D.x, 0.62, D.z, D.r + 0.005, 0.12, 28);
-  cast.box(M.gloss, C.dark, D.x - 0.3, 1.05, D.z + 0.2, D.x + 0.3, 1.45, D.z + 0.26);
-  cast.cylinder(M.metal, C.steel, D.x, 1.05, D.z, 0.035, 1.6, 8);
-  cast.box(M.matte, C.blue, D.x - 0.75, 2.4, D.z - 0.03, D.x + 0.75, 2.98, D.z + 0.03);
-  for (const f of [-1, 1]) still.panel(signs.material, C.white, D.x, D.z + f * 0.032, [0, f], 1.42, 2.43, 2.95, signs.rect('info'));
+  // Trees in round planters: a stone drum with an oak seat round it, a raised
+  // bed inside planted with shrubs in flower round the tree (the lot's tree, MallLot).
+  for (const t of TREE_PLANTERS) {
+    cast.cylinder(M.satin, C.stone, t.x, 0, t.z, t.r, 0.4, 32);
+    cast.cylinder(M.satin, C.oak, t.x, 0.4, t.z, t.r + 0.04, 0.06, 32);
+    cast.cylinder(M.satin, C.snow, t.x, 0.46, t.z, t.r - 0.45, 0.36, 28);
+    // Moss sunk 1.5 cm into the rim: level with its top the two fought.
+    still.cylinder(M.matte, C.leaf, t.x, 0.805, t.z, t.r - 0.5, 0.02, 28);
+    for (let i = 0; i < 7; i++) {
+      const a = i * Math.PI * 2 / 7 + 0.3;
+      shrub(still, M, t.x + Math.cos(a) * (t.r - 0.85), 0.8, t.z + Math.sin(a) * (t.r - 0.85), 0.3, i % 2 ? C.pink : C.white);
+    }
+  }
+  // Information desk: a round white counter with an oak top and a blue
+  // band, its "i" sign on a frame standing at the staff's side (not on a
+  // pole through the counter), a screen and a rack of leaflets.
+  const D = INFO_DESK, back = D.z + D.r * 0.55;
+  cast.cylinder(M.gloss, C.snow, D.x, 0, D.z, D.r, 1.0, 32);
+  cast.cylinder(M.satin, C.oak, D.x, 1.0, D.z, D.r + 0.06, 0.05, 32);
+  still.cylinder(M.satin, C.blue, D.x, 0.62, D.z, D.r + 0.005, 0.12, 32);
+  still.cylinder(M.matte, C.charcoal, D.x, 0, D.z, D.r + 0.005, 0.08, 32);
+  cast.box(M.gloss, C.dark, D.x - 0.3, 1.05, D.z + 0.05, D.x + 0.3, 1.42, D.z + 0.09);
+  still.panel(signs.material, C.white, D.x, D.z + 0.04, [0, -1], 0.54, 1.08, 1.39, signs.rect('screen'));
+  cast.box(M.metal, C.steel, D.x - 0.08, 1.05, D.z + 0.09, D.x + 0.08, 1.1, D.z + 0.2);
+  for (const dx of [-0.75, 0.75]) cast.box(M.metal, C.steel, D.x + dx - 0.03, 1.05, back - 0.03, D.x + dx + 0.03, 2.4, back + 0.03);
+  cast.box(M.matte, C.blue, D.x - 0.78, 1.8, back - 0.04, D.x + 0.78, 2.4, back + 0.04);
+  for (const f of [-1, 1]) still.panel(signs.material, C.white, D.x, back + f * 0.042, [0, f], 1.5, 1.83, 2.37, signs.rect('info'));
+  for (let k = 0; k < 3; k++) {
+    cast.turned(M.metal, C.steel, D.x - 0.7 + k * 0.17, 1.15, D.z - 0.5, 0.14, 0.2, 0.03, 0, -0.25);
+    cast.turned(M.satin, [C.pink, C.yellow, C.teal][k], D.x - 0.7 + k * 0.17, 1.18, D.z - 0.505, 0.12, 0.16, 0.012, 0, -0.25);
+  }
   // Floor guides at the atrium's south edge, facing both ways.
   for (const x of TOTEMS) {
     cast.box(M.matte, C.navy, x - 0.55, 0, TOTEM_Z - 0.12, x + 0.55, 2.1, TOTEM_Z + 0.12);
@@ -317,31 +326,60 @@ function corners(cast, still, M, signs) {
   // Capsule toys: two tiers of machines, the corner's sign over them.
   const G = GACHA, n = Math.floor((G.z1 - G.z0) / 0.575), w = (G.z1 - G.z0) / n;
   const colors = [C.red, C.blue, C.yellow, C.pink, C.green, C.orange];
-  for (let i = 0; i < n; i++) {
-    const z0 = G.z0 + i * w;
-    for (let t = 0; t < 2; t++) {
-      const y0 = t * 0.86;
-      cast.box(M.gloss, colors[(i + t * 3) % colors.length], G.x0, y0, z0 + 0.01, G.x1, y0 + 0.84, z0 + w - 0.01);
-      still.panel(signs.print, C.white, G.x1 + 0.012, z0 + w / 2, [1, 0], w - 0.08, y0 + 0.04, y0 + 0.8, signs.rect('gacha'));
-    }
-  }
+  for (let i = 0; i < n; i++) for (let t = 0; t < 2; t++) gacha(cast, still, M, signs, G.z0 + i * w, w, t * 0.86, colors[(i + t * 3) % colors.length], i * 2 + t);
   still.panel(signs.material, C.white, K.x0 + 0.02, (G.z0 + G.z1) / 2, [1, 0], 4.2, 2.0, 2.79, signs.rect('gachaSign'));
-  // Photo booths: a printed side, a curtained door, a lit header; the game centre's sign above.
+  // Photo booths: printed sides, a lit hood over each booth's entrance with its curtain under it.
   const P = PHOTO_BOOTHS, bw = (P.z1 - P.z0) / 3, px = P.x0 + 0.2;
   for (let i = 0; i < 3; i++) {
-    const z0 = P.z0 + i * bw + 0.05, z1 = z0 + bw - 0.1;
-    cast.box(M.gloss, i % 2 ? C.purple : C.pink, px, 0, z0, P.x1, 2.3, z1);
-    still.panel(signs.material, C.white, px - 0.012, z0 + (z1 - z0) * 0.3, [-1, 0], (z1 - z0) * 0.56, 0.2, 2.1, signs.rect('purikura'));
-    still.panel(M.fabric, C.blush, px - 0.01, z0 + (z1 - z0) * 0.79, [-1, 0], (z1 - z0) * 0.36, 0.45, 2.05);
-    still.box(M.glow, C.light, px - 0.04, 2.24, z0, px, 2.3, z1);
+    const z0 = P.z0 + i * bw + 0.05, z1 = z0 + bw - 0.1, body = i % 2 ? C.purple : C.pink, e0 = z0 + (z1 - z0) * 0.6;
+    cast.box(M.gloss, body, px, 0, z0, P.x1, 2.3, z1);
+    still.panel(signs.material, C.white, px - 0.012, z0 + (z1 - z0) * 0.3, [-1, 0], (z1 - z0) * 0.52, 0.2, 2.1, signs.rect('purikura'));
+    // The entrance: a dark opening, the hood over it, the curtain hung in folds.
+    still.panel(M.matte, C.black, px - 0.005, (e0 + z1 - 0.04) / 2, [-1, 0], z1 - 0.04 - e0, 0, 2.0);
+    cast.box(M.gloss, C.white, px - 0.4, 2.0, e0 - 0.04, px, 2.3, z1);
+    still.panel(signs.material, C.white, px - 0.405, (e0 - 0.04 + z1) / 2, [-1, 0], z1 - e0 - 0.08, 2.05, 2.25, signs.rect('puriHood'));
+    still.flat(M.glow, C.light, px - 0.38, e0, px - 0.02, z1 - 0.02, 1.995, true);
+    const folds = 10, fw = (z1 - 0.04 - e0) / folds;
+    for (let k = 0; k < folds; k++) still.box(M.fabric, k % 2 ? C.pink : FOLD, px - 0.15 - (k % 2) * 0.03, 0.42, e0 + k * fw, px - 0.13 - (k % 2) * 0.03, 2.0, e0 + (k + 1) * fw);
+    still.rod(M.chrome, C.steel, [px - 0.17, 2.0, e0], [px - 0.17, 2.0, z1 - 0.04], 0.012, 6);
   }
-  // Vending machines on the service front.
-  const V = VENDING, vn = 3, vw = (V.x1 - V.x0) / vn;
+  // Vending machines on the service front: the lit display (picture), a coin unit, the pick-up pocket, a lit header.
+  const VM = VENDING, vn = 3, vw = (VM.x1 - VM.x0) / vn, vz = VM.z - 0.78;
   for (let i = 0; i < vn; i++) {
-    const x0 = V.x0 + i * vw + 0.03, x1 = x0 + vw - 0.06;
-    cast.box(M.gloss, [C.snow, C.red, C.blue][i], x0, 0, V.z - 0.78, x1, 1.83, V.z - 0.02);
-    still.panel(signs.material, C.white, (x0 + x1) / 2, V.z - 0.792, [0, -1], x1 - x0 - 0.08, 0.1, 1.78, signs.rect('vending'));
+    const x0 = VM.x0 + i * vw + 0.03, x1 = x0 + vw - 0.06, cx = (x0 + x1) / 2;
+    cast.box(M.gloss, [C.snow, C.red, C.blue][i], x0, 0, vz, x1, 1.83, VM.z - 0.02);
+    still.panel(signs.material, C.white, cx, vz - 0.012, [0, -1], x1 - x0 - 0.08, 0.1, 1.78, signs.rect('vending'));
+    cast.box(M.metal, C.steel, x1 - 0.24, 0.95, vz - 0.06, x1 - 0.08, 1.25, vz);
+    still.box(M.gloss, C.black, x1 - 0.18, 1.12, vz - 0.065, x1 - 0.14, 1.2, vz - 0.06);
+    cast.box(M.gloss, C.dark, x0 + 0.1, 0.22, vz - 0.07, x1 - 0.1, 0.42, vz);
+    still.box(M.metal, C.steel, x0 + 0.1, 0.38, vz - 0.075, x1 - 0.1, 0.42, vz - 0.07);
+    still.box(M.glow, C.light, x0 + 0.02, 1.84, vz + 0.02, x1 - 0.02, 1.9, VM.z - 0.04);
   }
+}
+
+/**
+ * One capsule machine, its front facing +x on the west wall, z0..z0 + w,
+ * standing at y0: a coloured cabinet with the series' label, the coin
+ * handle and the capsule chute; above it the clear globe of capsules.
+ */
+function gacha(cast, still, M, signs, z0, w, y0, body, seed) {
+  const G = GACHA, xf = G.x1, za = z0 + 0.015, zb = z0 + w - 0.015, zc = (za + zb) / 2;
+  cast.box(M.gloss, body, G.x0, y0, za, xf, y0 + 0.42, zb);
+  cast.box(M.gloss, body, G.x0, y0 + 0.8, za, xf, y0 + 0.85, zb);
+  for (const z of [za, zb - 0.03]) cast.box(M.gloss, body, xf - 0.04, y0 + 0.42, z, xf, y0 + 0.8, z + 0.03);
+  still.box(M.matte, C.white, G.x0, y0 + 0.42, za, G.x0 + 0.02, y0 + 0.8, zb);
+  still.panel(M.glass, C.white, xf - 0.02, zc, [1, 0], zb - za - 0.06, y0 + 0.42, y0 + 0.8);
+  // Capsules heaped in the globe.
+  const tones = [C.pink, C.yellow, C.sky, C.green, C.orange, C.purple];
+  for (let k = 0; k < 6; k++) {
+    const x = G.x0 + 0.2 + (k % 4) * 0.13, z = za + 0.1 + ((k * 3 + seed) % 5) * 0.08, y = y0 + 0.48 + (k > 3 ? 0.1 : 0);
+    still.sphere(M.gloss, tones[(k + seed) % tones.length], x, y, Math.min(z, zb - 0.1), 0.06, 1, 2);
+  }
+  still.panel(signs.print, C.white, xf + 0.006, zc, [1, 0], zb - za - 0.08, y0 + 0.2, y0 + 0.39, signs.rect('gachaLabel'));
+  // Coin handle (a chrome dial with its grip), the chute below it.
+  still.rod(M.chrome, C.steel, [xf, y0 + 0.12, zc], [xf + 0.04, y0 + 0.12, zc], 0.055, 12);
+  still.box(M.chrome, C.steel, xf + 0.04, y0 + 0.1, zc - 0.05, xf + 0.06, y0 + 0.14, zc + 0.05);
+  still.box(M.gloss, C.black, xf, y0 + 0.02, zc - 0.07, xf + 0.012, y0 + 0.08, zc + 0.07);
 }
 
 /**
@@ -383,9 +421,12 @@ function decoration(cast, still, M, signs) {
   }
 }
 
-/** A pumpkin on the floor: a squat ribbed ball and its stalk. */
+/** A pumpkin on the floor: six squat lobes round a core (its ribs), a curled stalk. */
 function pumpkin(b, M, x, z, r) {
-  b.sphere(M.satin, C.orange, x, r * 0.72, z, r, 0.72, 8);
-  b.sphere(M.satin, C.orange, x + r * 0.35, r * 0.62, z, r * 0.7, 0.85, 6);
-  b.cylinder(M.matte, C.leaf, x, r * 1.35, z, r * 0.12, r * 0.3, 5, r * 0.08);
+  b.sphere(M.satin, C.orange, x, r * 0.62, z, r * 0.8, 0.78, 6);
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3;
+    b.sphere(M.satin, C.orange, x + Math.cos(a) * r * 0.42, r * 0.58, z + Math.sin(a) * r * 0.42, r * 0.55, 1.05, 5);
+  }
+  b.rod(M.matte, C.walnut, [x, r * 1.05, z], [x + r * 0.12, r * 1.38, z + r * 0.05], r * 0.09, 5);
 }

@@ -44,7 +44,12 @@ test('everything sits where it belongs', () => {
   assert.deepEqual([...new Set(lay.fashion.racks.map((r) => r.rack))].sort(), Object.keys(RACKS).sort());
   assert.equal(lay.fashion.fittingRooms.length, 3);
   for (const f of lay.fashion.fittingRooms) assert.ok(inRect(lay.fashion.zone, f.inside.x, f.inside.z) && f.curtain);
-  for (const c of lay.cartCorrals) assert.ok(c.slots.length >= c.count);
+  for (const c of lay.cartCorrals) {
+    assert.ok(c.slots.length >= c.count);
+    // From the closed end back to the open one (carts nest there; the shoppers take the last full one).
+    const along = (s) => s.x * Math.sin(c.yaw) + s.z * Math.cos(c.yaw);
+    for (let i = 1; i < c.slots.length; i++) assert.ok(along(c.slots[i]) < along(c.slots[i - 1]), `corral slot ${i}`);
+  }
   assert.ok(lay.cartCorrals[0].count >= 10);
 });
 

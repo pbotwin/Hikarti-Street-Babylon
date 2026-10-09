@@ -64,6 +64,7 @@ export class MallFashion {
     const { scene, layout, engine, camera } = this.ctx;
     const fashion = layout.fashion || {};
     this.zone = fashion.zone;
+    this.floorY = layout.building?.floorY ?? 0;
     this.set = new GarmentSet(scene);
     this.print = new FashionPrint(scene);
     this.racks = new ClothingRacks(fashion.racks || []);
@@ -310,9 +311,10 @@ export class MallFashion {
   // ------------------------------------------------------------ prompt
   prompt() {
     const { player, animation, vehicles } = this.ctx;
-    // Her hands on a cart (act.hands): park it first.
-    if (this.busy || vehicles?.driving || animation.act.hands) return null;
+    // Her hands on a cart (act.hands): park it first. Upstairs (the bag shop is
+    // over the store) the racks below offered their clothes.
     const p = player.position, P = this._prompts, n = this.carried.length;
+    if (this.busy || vehicles?.driving || animation.act.hands || Math.abs(p.y - this.floorY) > 1) return null;
     // The till and the fitting rooms come before the racks around them.
     if (this.till && n) {
       const d = this.till.distance(p);
@@ -336,6 +338,9 @@ export class MallFashion {
         }
       }
     }
+    // The racks are all in the store: no search of its hooks every frame from anywhere else in the mall.
+    const z = this.zone;
+    if (z && (p.x < z.x0 - 1 || p.x > z.x1 + 1 || p.z < z.z0 - 1 || p.z > z.z1 + 1)) return null;
     const s = this.racks.facing(p, player.yaw);
     if (!s) return null;
     if (n >= MAX_CARRY) {

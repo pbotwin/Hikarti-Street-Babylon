@@ -4,10 +4,9 @@ import { FONT } from '../interiors/Labels.js';
 /**
  * Pictures for Hikari Mall's sign atlas (MallSigns), drawn lit (`signs.print`)
  * or self-lit (`signs.material`): shelves of goods as seen through a shop
- * window (books, cosmetics, toys, shoes, televisions…), the interiors of
- * the upper floor's shops, machine fronts (gacha, cranes, vending, photo
- * booths), murals, banners and the small printed things (price cards,
- * menus). A shop's shelf is a box with one of these across it: from the
+ * window (books, cosmetics, toys, shoes, televisions…), machine fronts
+ * (gacha, cranes, vending, photo booths), murals, banners, film posters
+ * and the small printed things (price cards, menus). A shop's shelf is a box with one of these across it: from the
  * concourse it reads as a shelf full of goods for two triangles a bay.
  *
  * Each entry: id → [width, height, painter(g, x, y, w, h), density]
@@ -157,49 +156,24 @@ function screens(g, x, y, w, h) {
   }
 }
 
-/** The inside of an upper-floor shop seen through its window: back wall, lights, fixtures in perspective, people-free. */
-const room = (wall, floor, accent, kind) => (g, x, y, w, h) => {
-  const rnd = mulberry32(kind.length * 31 + 7);
-  g.fillStyle = wall; g.fillRect(x, y, w, h);
-  g.fillStyle = floor; g.fillRect(x, y + h * 0.72, w, h * 0.28);
-  g.fillStyle = 'rgba(255,255,255,0.9)';
-  for (let i = 0; i < 6; i++) g.fillRect(x + w * (0.06 + i * 0.16), y + h * 0.04, w * 0.08, h * 0.03);
-  g.fillStyle = accent; g.fillRect(x, y + h * 0.12, w, h * 0.06);
-  if (kind === 'shelves') {
-    for (let i = 0; i < 5; i++) {
-      const sx = x + w * (0.04 + i * 0.195), sw = w * 0.17, top = y + h * 0.24;
-      g.fillStyle = '#efece6'; g.fillRect(sx, top, sw, h * 0.5);
-      for (let k = 0; k < 4; k++) {
-        let cx = sx + 2;
-        while (cx < sx + sw - 6) { const bw = 4 + rnd() * 8; g.fillStyle = rnd.pick(BRIGHT.concat(PASTELS)); g.fillRect(cx, top + 4 + k * h * 0.12, bw, h * 0.09); cx += bw + 1; }
-      }
-    }
-  } else if (kind === 'racks') {
-    for (let i = 0; i < 6; i++) {
-      const rx = x + w * (0.05 + i * 0.16), top = y + h * 0.36;
-      g.fillStyle = '#9aa0a6'; g.fillRect(rx, top, w * 0.13, 2);
-      for (let k = 0; k < 9; k++) { g.fillStyle = rnd.pick(BRIGHT.concat(PASTELS, ['#3b3f46', '#26324a'])); g.fillRect(rx + k * w * 0.0145, top + 2, w * 0.012, h * (0.2 + rnd() * 0.12)); }
-    }
-  } else if (kind === 'food') {
-    // Counters with lit menus along the back, tables and chairs.
-    for (let i = 0; i < 4; i++) {
-      const sx = x + w * (0.03 + i * 0.245);
-      g.fillStyle = rnd.pick(['#e2574c', '#2f8f5b', '#f29a2e', '#2f6fb3']); g.fillRect(sx, y + h * 0.2, w * 0.22, h * 0.1);
-      g.fillStyle = '#fff8ee'; g.fillRect(sx + 4, y + h * 0.31, w * 0.22 - 8, h * 0.12);
-      for (let k = 0; k < 4; k++) { g.fillStyle = rnd.pick(['#c98a4b', '#f2c230', '#e2574c', '#7bd389']); g.fillRect(sx + 8 + k * w * 0.05, y + h * 0.33, w * 0.035, h * 0.07); }
-      g.fillStyle = '#d6b58a'; g.fillRect(sx, y + h * 0.48, w * 0.22, h * 0.2);
-    }
-    for (let i = 0; i < 7; i++) { g.fillStyle = '#f2f0ea'; g.fillRect(x + w * (0.04 + i * 0.14), y + h * 0.78, w * 0.08, h * 0.04); g.fillStyle = '#6b4a32'; g.fillRect(x + w * (0.075 + i * 0.14), y + h * 0.82, w * 0.01, h * 0.12); }
-  } else if (kind === 'cinema') {
-    for (let i = 0; i < 6; i++) {
-      const px = x + w * (0.04 + i * 0.16), c = rnd.pick(['#1f6f8b', '#7a2e8a', '#c0392b', '#26324a', '#f29a2e', '#2f8f5b']);
-      g.fillStyle = '#141518'; g.fillRect(px - 3, y + h * 0.22 - 3, w * 0.12 + 6, h * 0.42 + 6);
-      const gr = g.createLinearGradient(px, y + h * 0.22, px, y + h * 0.64); gr.addColorStop(0, c); gr.addColorStop(1, '#141518');
-      g.fillStyle = gr; g.fillRect(px, y + h * 0.22, w * 0.12, h * 0.42);
-      g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillRect(px + w * 0.015, y + h * 0.56, w * 0.09, h * 0.025);
-    }
-    g.fillStyle = '#c9a227'; g.fillRect(x + w * 0.3, y + h * 0.68, w * 0.4, h * 0.05);
-  }
+/** A menu board: a dark ground, its title, items with their prices. */
+const menu = (bg, accent, title, rows) => (g, x, y, w, h) => {
+  g.fillStyle = bg; g.fillRect(x, y, w, h);
+  text(g, title, x + w / 2, y + h * 0.14, h * 0.13, accent, 900);
+  rows.forEach(([n, p], i) => { text(g, n, x + w * 0.08, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'left'); text(g, `¥${p}`, x + w * 0.92, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'right'); });
+};
+
+/** A film poster: a sky of two colours, a moon or sun, a silhouette, the title. */
+const film = (top, bottom, orb, title, sub) => (g, x, y, w, h) => {
+  const gr = g.createLinearGradient(x, y, x, y + h); gr.addColorStop(0, top); gr.addColorStop(1, bottom);
+  g.fillStyle = gr; g.fillRect(x, y, w, h);
+  g.fillStyle = orb; g.beginPath(); g.arc(x + w * 0.62, y + h * 0.3, w * 0.2, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(20,21,24,0.85)';
+  g.beginPath(); g.moveTo(x, y + h * 0.72); g.lineTo(x + w * 0.3, y + h * 0.6); g.lineTo(x + w * 0.55, y + h * 0.68); g.lineTo(x + w, y + h * 0.58); g.lineTo(x + w, y + h); g.lineTo(x, y + h); g.fill();
+  g.beginPath(); g.ellipse(x + w * 0.4, y + h * 0.52, w * 0.05, h * 0.035, 0, 0, Math.PI * 2); g.fill();
+  g.fillRect(x + w * 0.37, y + h * 0.55, w * 0.06, h * 0.12);
+  text(g, title, x + w / 2, y + h * 0.8, w * 0.13, '#fff8ee', 900);
+  text(g, sub, x + w / 2, y + h * 0.9, w * 0.06, '#f2c230', 800);
 };
 
 /** Banner art: tall, both sides of a hanging banner. */
@@ -253,20 +227,20 @@ export function pictures() {
     candy: [192, 96, shelves('#f2f0ea', '#d0ccc4', 3, candy, 15)],
     screens: [320, 160, screens, 1.5],
     // ---------------------------------------------------------------- machine fronts and kiosks
-    gacha: [96, 144, (g, x, y, w, h) => {
+    // A capsule machine's label: the series (round animal heads), its price.
+    gachaLabel: [96, 64, (g, x, y, w, h) => {
       const rnd = mulberry32(19);
-      g.fillStyle = '#f4f3ee'; g.fillRect(x, y, w, h);
-      g.fillStyle = '#1b1e24'; g.fillRect(x + w * 0.1, y + h * 0.06, w * 0.8, h * 0.46);
-      for (let i = 0; i < 26; i++) {
-        const cx = x + w * (0.18 + rnd() * 0.64), cy = y + h * (0.22 + rnd() * 0.28), c = rnd.pick(BRIGHT);
-        g.fillStyle = c; g.beginPath(); g.arc(cx, cy, w * 0.07, Math.PI, 0); g.fill();
-        g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(cx, cy, w * 0.07, 0, Math.PI); g.fill();
+      g.fillStyle = '#fff8ee'; g.fillRect(x, y, w, h);
+      for (let i = 0; i < 3; i++) {
+        const cx = x + w * (0.2 + i * 0.3), cy = y + h * 0.42, r = w * 0.11, c = rnd.pick(PASTELS.slice(0, 5));
+        g.fillStyle = c; g.beginPath(); g.arc(cx - r * 0.7, cy - r * 0.75, r * 0.4, 0, Math.PI * 2); g.arc(cx + r * 0.7, cy - r * 0.75, r * 0.4, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#3b3f46'; g.beginPath(); g.arc(cx - r * 0.35, cy - r * 0.05, r * 0.11, 0, Math.PI * 2); g.arc(cx + r * 0.35, cy - r * 0.05, r * 0.11, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#e27c9a'; g.beginPath(); g.arc(cx, cy + r * 0.3, r * 0.12, 0, Math.PI * 2); g.fill();
       }
-      g.fillStyle = rnd.pick(BRIGHT); g.fillRect(x + w * 0.1, y + h * 0.55, w * 0.8, h * 0.16);
-      text(g, '¥300', x + w / 2, y + h * 0.63, h * 0.08, '#fff', 900);
-      g.fillStyle = '#9aa0a6'; g.beginPath(); g.arc(x + w / 2, y + h * 0.8, w * 0.12, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#26324a'; g.fillRect(x + w * 0.3, y + h * 0.92, w * 0.4, h * 0.05);
-    }],
+      g.fillStyle = '#e2574c'; g.fillRect(x, y + h * 0.76, w, h * 0.24);
+      text(g, '¥300', x + w / 2, y + h * 0.88, h * 0.18, '#ffffff', 900);
+    }, 1.5],
     crane: [96, 192, (g, x, y, w, h) => {
       const rnd = mulberry32(23);
       g.fillStyle = '#26324a'; g.fillRect(x, y, w, h);
@@ -345,23 +319,15 @@ export function pictures() {
       g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x + bw * 0.3, y + h * 0.55, bw * 0.4, 2);
       return bw + 2;
     }, 41), 1.5],
-    cafeMenu: [192, 96, (g, x, y, w, h) => {
-      g.fillStyle = '#2b2b2b'; g.fillRect(x, y, w, h);
-      text(g, 'CAFÉ MENU', x + w / 2, y + h * 0.14, h * 0.13, '#f6c1d1', 900);
-      const rows = [['Sakura Latte', '480'], ['Melon Pan', '220'], ['Matcha Roll', '380'], ['Strawberry Shortcake', '450']];
-      rows.forEach(([n, p], i) => { text(g, n, x + w * 0.08, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'left'); text(g, `¥${p}`, x + w * 0.92, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'right'); });
-    }, 1.5],
-    cinemaMenu: [192, 96, (g, x, y, w, h) => {
-      g.fillStyle = '#1d1a2b'; g.fillRect(x, y, w, h);
-      text(g, 'TICKETS · SNACKS', x + w / 2, y + h * 0.14, h * 0.13, '#f2c230', 900);
-      const rows = [['Adult ticket', '1900'], ['Popcorn (salt / caramel)', '600'], ['Melon soda', '400'], ['Combo set', '950']];
-      rows.forEach(([n, p], i) => { text(g, n, x + w * 0.08, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'left'); text(g, `¥${p}`, x + w * 0.92, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'right'); });
-    }, 1.5],
-    // ---------------------------------------------------------------- upper-floor interiors (self-lit, behind glass)
-    roomShelves: [256, 128, room('#f2efe9', '#d8d1c6', '#2f6fb3', 'shelves'), 1.5],
-    roomRacks: [256, 128, room('#f6f1ec', '#cdb89a', '#e27c9a', 'racks'), 1.5],
-    roomFood: [256, 128, room('#efe6d8', '#bfae96', '#e2574c', 'food'), 1.5],
-    roomCinema: [256, 128, room('#2b2530', '#4a3a42', '#c9a227', 'cinema'), 1.5],
+    cafeMenu: [192, 96, menu('#2b2b2b', '#f6c1d1', 'CAFÉ MENU', [['Sakura Latte', '480'], ['Melon Pan', '220'], ['Matcha Roll', '380'], ['Strawberry Shortcake', '450']]), 1.5],
+    cinemaMenu: [192, 96, menu('#1d1a2b', '#f2c230', 'TICKETS · SNACKS', [['Adult ticket', '1900'], ['Popcorn (salt / caramel)', '600'], ['Melon soda', '400'], ['Combo set', '950']]), 1.5],
+    teaMenu: [192, 96, menu('#23331f', '#c9e4a6', '甘味 · TEA MENU', [['Matcha Latte', '520'], ['Matcha Parfait', '780'], ['Taiyaki', '200'], ['Hojicha', '400']]), 1.5],
+    takoMenu: [192, 96, menu('#2a1a12', '#f29a2e', 'たこ焼き TAKOYAKI', [['Takoyaki (6)', '500'], ['Takoyaki (10)', '780'], ['Bubble Tea', '450'], ['Ramune', '200']]), 1.5],
+    udonMenu: [192, 96, menu('#1d2433', '#a9cde6', 'うどん UDON', [['Kake Udon', '450'], ['Tempura Udon', '720'], ['Kitsune Udon', '580'], ['Melon Soda', '300']]), 1.5],
+    // ---------------------------------------------------------------- film posters (the cinema's lobby)
+    filmStars: [120, 180, film('#1b2a5c', '#7a5fb3', '#f6e7a8', 'Starlight Express', 'NOW SHOWING'), 1.5],
+    filmSummer: [120, 180, film('#7ec8e3', '#f6c1d1', '#ffffff', 'Summer Ghost Days', '10.31 ROADSHOW'), 1.5],
+    filmDragon: [120, 180, film('#e8892f', '#7a2e2e', '#f2c230', 'Dragon Rider', 'IMAX · 3D'), 1.5],
     // ---------------------------------------------------------------- murals, banners, decoration
     muralProduce: [384, 120, (g, x, y, w, h) => {
       const rnd = mulberry32(43);

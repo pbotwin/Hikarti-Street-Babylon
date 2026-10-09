@@ -57,8 +57,11 @@ export class MallMode {
     d.ui.setLoading(0.45, 'Stocking the shelves…');
     // Shopping takes the clothing store's bags to the cart and the boot.
     const fashion = ctx.fashion = new MallFashion(ctx);
-    this.modules = [world, new MallShopping(ctx), fashion, new MallShops(ctx), new MallShoppers(ctx)];
+    const shopping = new MallShopping(ctx);
+    this.modules = [world, shopping, fashion, new MallShops(ctx), new MallShoppers(ctx)];
     await Promise.all(this.modules.slice(1).map((m) => m.init()));
+    // The shelf stock is drawn only while the supermarket can be seen.
+    world.visibility.add(world.rooms.market, shopping.stock.root);
     this._restale();
     d.ui.setLoading(0.85, 'Opening the doors…');
     // Shaders and geometry finished on the GPU now, not on first sight.

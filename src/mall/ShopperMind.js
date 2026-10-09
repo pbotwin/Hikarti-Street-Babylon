@@ -42,7 +42,7 @@ const _p = new Vector3(), _spot = { x: 0, z: 0, yaw: 0 }, _probe = { x: 0, z: 0 
 const BROWSE = [3, 7], PAY_AT = 2.6;      // s looking round a small shop; at its till
 
 export class ShopperMind {
-  /** env: { layout, nav, escalators, collision, gear, lines, till, player, shoppers } */
+  /** env: { layout, nav, escalators, collision, gear, lines, till, player, shoppers, rooms(), corrals() } */
   constructor(env) {
     this.env = env;
     const L = env.layout;
@@ -84,10 +84,11 @@ export class ShopperMind {
       this._next(s);
       return;
     }
-    // Carts from the corral nearest their car (one of the carts standing in it), back into it on the way out.
+    // Carts from the corral nearest their car (the last one of its nest: the slots run from
+    // its closed end, and one deeper in has carts behind it), back into it on the way out.
     const corral = this._nearestCorral(s.bay), slots = corral?.slots?.length ? corral.slots : corral ? [corral] : [];
     const stacked = Math.max(1, Math.min(corral?.count ?? slots.length, slots.length));
-    if (s.want && corral) plan.push(this._at({ type: 'cart', slot: slots[Math.floor(Math.random() * stacked)] }));
+    if (s.want && corral) plan.push(this._at({ type: 'cart', corral, slot: slots[stacked - 1] }));
     if (s.want) {
       const n = s.want === 'cart' ? 3 + Math.floor(Math.random() * 4) : 2 + Math.floor(Math.random() * 2);
       for (const shelf of this._stops(this.shelves, n)) plan.push(this._at({ type: 'shelf', shelf, n: s.want === 'cart' ? 1 + Math.floor(Math.random() * 2) : 1 }));
@@ -98,7 +99,7 @@ export class ShopperMind {
       if (Math.random() < 0.5) plan.push({ type: 'fit' });
     }
     if (s.want ? this.env.lines.length : this.env.till) plan.push({ type: 'queue' });
-    if (s.want === 'cart' && corral) plan.push(this._at({ type: 'return', slot: slots[Math.min(stacked, slots.length - 1)] }));
+    if (s.want === 'cart' && corral) plan.push(this._at({ type: 'return', corral, slot: slots[Math.min(stacked, slots.length - 1)] }));
     plan.push(this._at({ type: 'car' }, s));
     s.plan = plan;
     s.stage = 'arrive';
@@ -188,6 +189,15 @@ export class ShopperMind {
     s.ri = 0;
     s.snags = 0;
     if (!st) return;
+    // A corral's open end is where it is now (she and the others have taken and returned carts since the plan).
+    const end = (st.type === 'cart' || st.type === 'return') && this.env.corrals()?.end(st.corral, st.type === 'cart');
+    if (end) { st.slot = end; this._at(st); }
+    if (st.slot && st.corral) {
+      // Into the corral along its rails, from before its open end (the corral's last slot):
+      // straight at a slot from the side, their cart caught on the rails for good.
+      const { x, z, yaw = 0 } = st.corral.slots[st.corral.slots.length - 1], back = CART_AHEAD + 1.2;
+      st.via = { x: x - Math.sin(yaw) * back, z: z - Math.cos(yaw) * back };
+    }
     if (st.type === 'queue') this._joinLine(s);
     else if (st.type === 'fit') this._toRoom(s, st);
     else if (st.type !== 'emerge') this.routeTo(s, st.x, st.z, st.y);
@@ -199,7 +209,13 @@ export class ShopperMind {
     s.ri = 0;
     s.ride = null;
     s.prog.x = p.x; s.prog.z = p.z; s.prog.t = 0;
-    this.env.nav.path(p.x, p.z, x, z, s.route, p.y, y);
+    const via = s.step?.via, r = s.route;
+    this.env.nav.path(p.x, p.z, via?.x ?? x, via?.z ?? z, r, p.y, y);
+    if (!via) return;
+    // On from there to the goal itself.
+    const last = r[r.count] || (r[r.count] = { x: 0, z: 0, ride: -1 });
+    last.x = x; last.z = z; last.ride = -1;
+    r.count++;
   }
 
   // ------------------------------------------------------------ per frame
@@ -226,7 +242,7 @@ export class ShopperMind {
       case 'rack': if (this._walkTo(s, st, dt)) this._rack(s, st); break;
       case 'fit': if (this._walkTo(s, st, dt)) this._fit(s, st); break;
       case 'queue': this._queue(s, dt); break;
-      case 'return': if (this._walkTo(s, st, dt)) this._returnCart(s); break;
+      case 'return': if (this._walkTo(s, st, dt)) this._returnCart(s, st); break;
       case 'car': if (this._walkTo(s, st, dt)) this._getIn(s); break;
       case 'shop': if (this._walkTo(s, st, dt)) this._shop(s, st); break;
       default: this._next(s);
@@ -262,6 +278,8 @@ export class ShopperMind {
       if (moved < 0.8) {
         // Stuck for good, or still behind her past their patience: on to the next step.
         if ((++s.snags > 2 || s.yieldT >= PATIENCE) && s.step.type !== 'car' && s.step.type !== 'queue') { this._drop(s); this._next(s); return; }
+        // Half a minute short of their car's door: they are gone (not walking into a car for the rest of the trip).
+        if (s.step.type === 'car' && s.snags > 4) { s.done = true; return; }
         const goal = route[route.count - 1];
         this.routeTo(s, goal.x, goal.z, s.step.y);
         return;
@@ -418,9 +436,11 @@ export class ShopperMind {
 
   _takeCart(s, st) {
     if (s.t < 0.6) return;
-    const { x, z, yaw = 0 } = st.slot;
+    // The corral's own end cart when there is one (a new one when she has just taken the last).
+    const cart = s.want === 'cart' ? this.env.corrals()?.lend(st.corral) : null;
+    const { x, z, yaw = 0 } = cart || st.slot;
     s.kind = s.want;
-    this.env.gear.setKind(s.index, s.kind, x, z, yaw);
+    this.env.gear.setKind(s.index, s.kind, x, z, yaw, cart);
     if (s.kind === 'cart') this._cartAt(s, x, z, yaw);
     s.parked = false;
     s.stage = 'shop';
@@ -729,10 +749,11 @@ export class ShopperMind {
     this._next(s);
   }
 
-  _returnCart(s) {
+  _returnCart(s, st) {
     if (s.t < 0.5) return;
-    // The bags come out of the cart into a hand.
-    this.env.gear.setKind(s.index, null);
+    // The bags come out of the cart into a hand; the cart nests in the corral (gone if it is full).
+    const gear = this.env.gear, cart = gear.leaveCart(s.index);
+    if (cart && !this.env.corrals()?.nestBack(st.corral, cart)) cart.dispose();
     s.kind = null;
     s.bag = this.env.gear.takeBag();
     this._next(s);

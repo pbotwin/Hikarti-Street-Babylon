@@ -85,7 +85,9 @@ export const VENDING = { x0: -1.8, x1: 1.2, z: 23 };                    // on th
 /**
  * Footprints (site rects, with the height they collide to; the camera
  * passes `pass` ones: low things it looks over, the escalators' runs she
- * rides) of everything standing on the concourse floor: MallConcourse's
+ * rides, the glass lift's shaft she rides in: stepping out of it upstairs
+ * the shaft was right behind her, and the camera sat in her hair) of
+ * everything standing on the concourse floor: MallConcourse's
  * collisions, and the walk graph's clearance (tested).
  */
 export function concourseObstacles() {
@@ -99,7 +101,7 @@ export function concourseObstacles() {
   for (const [z0, z1] of [[E.z0, E.z0 + 0.2], [mid - 0.16, mid + 0.16], [E.z1 - 0.2, E.z1]]) box(E.x0 + 0.3, z0, RUN.comb0, z1, 1.1);
   round(FOUNTAIN, 0.55, true);
   round(INFO_DESK, 1.05);
-  round(LIFT, UPPER_CEILING);
+  round(LIFT, UPPER_CEILING, true);
   for (const t of TREE_PLANTERS) round(t, 0.9, true);
   box(GACHA.x0, GACHA.z0, GACHA.x1, GACHA.z1, 1.75);
   box(PHOTO_BOOTHS.x0, PHOTO_BOOTHS.z0, PHOTO_BOOTHS.x1, PHOTO_BOOTHS.z1, 2.4);
@@ -348,7 +350,7 @@ export const PRODUCE_TABLES = { xs: [-9.2, -5.4], zs: [37, 40.6, 46.2, 49.8], w:
 /** Checkout counters: x of each counter's centre line; customers walk down the lane east of it. */
 export const CHECKOUT_X = [-33.2, -29.6, -26.0, -22.4];
 export const CHECKOUT = { z0: 24.2, z1: 29.8, w: 0.9, h: 0.9, register: 26.2, beltFrom: 29.5, beltTo: 26.8, bag: 24.65, lane: 1.15 };
-export const CORRAL = { x0: -18, x1: -13.4, z: 22.25, count: 10, slots: 12 };   // carts nest facing the entry
+export const CORRAL = { x0: -18, x1: -13.4, z: 22.25, count: 10, slots: 12 };   // carts nest from x0 (its closed end), taken out at x1
 
 // ------------------------------------------------------------------ boutique
 export const FLOOR_RACKS = [
@@ -447,13 +449,18 @@ export function planLayout(origin) {
   lay.car = { ...p(her.x, her.z), yaw: yaw(her.yaw), model: 'car_kei_pink' };
   lay.spawn = { ...p(WALKWAY.x0 + 0.9, her.z + 0.6), yaw: yaw(0) };
 
-  // Carts: the corral by the supermarket entry, the cart return in the lot.
+  // Carts: the corral by the supermarket entry, the cart return in the lot. Slots
+  // from the closed end back to the open one, as carts nest (the first `count`
+  // are full; the shoppers take the last of those and return to the next).
+  // The corral's carts faced away from its closed end (its rail across x0,
+  // MallMarket): she pulled one out through that rail, and none could be
+  // pushed back in (the rail stopped it short of its slot).
   const slots = [];
-  for (let i = 0; i < CORRAL.slots; i++) slots.push({ ...p(CORRAL.x0 + 0.35 + i * 0.36, CORRAL.z), yaw: yaw(Math.PI / 2) });
+  for (let i = 0; i < CORRAL.slots; i++) slots.push({ ...p(CORRAL.x0 + 0.35 + i * 0.36, CORRAL.z), yaw: yaw(-Math.PI / 2) });
   const ret = [];
   for (let i = 0; i < CART_RETURN.slots; i++) ret.push({ ...p(CART_RETURN.x, CART_RETURN.z1 - 0.5 - i * 0.4), yaw: yaw(0) });
   lay.cartCorrals = [
-    { ...p((CORRAL.x0 + CORRAL.x1) / 2, CORRAL.z), yaw: yaw(Math.PI / 2), count: CORRAL.count, slots },
+    { ...p((CORRAL.x0 + CORRAL.x1) / 2, CORRAL.z), yaw: yaw(-Math.PI / 2), count: CORRAL.count, slots },
     { ...p(CART_RETURN.x, (CART_RETURN.z0 + CART_RETURN.z1) / 2), yaw: yaw(0), count: CART_RETURN.count, slots: ret },
   ];
 

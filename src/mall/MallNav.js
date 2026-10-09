@@ -58,10 +58,19 @@ export class MallNav {
       && c.raycast(x0 - uz * r, ey, z0 + ux * r, ux, 0, uz, d) >= d - 0.05;
   }
 
-  /** The nearest node on the floor at y reachable in a straight line from (x, z) (-1: none of the closest few). */
-  nearest(x, z, y = this.floorY) {
+  /**
+   * The nearest node on the floor at y reachable in a straight line from
+   * (x, z); when none of the closest few is, the closest of all (-1: no
+   * node on that floor). A parked car's door is boxed in by its own body
+   * and its neighbours' (3 of the lot's 43 bays): with no node a route was
+   * the goal alone, and a shopper leaving a shop for such a car walked
+   * straight at it, into the shop's back wall, for good. The way to the
+   * closest node is round a car's corner at worst. `strict`: -1 then.
+   */
+  nearest(x, z, y = this.floorY, strict = false) {
     const nodes = this.nodes, tried = this._tried || (this._tried = new Set());
     tried.clear();
+    let closest = -1;
     for (let attempt = 0; attempt < 6; attempt++) {
       let best = -1, bd = Infinity;
       for (let i = 0; i < nodes.length; i++) {
@@ -69,11 +78,12 @@ export class MallNav {
         const d = (nodes[i][0] - x) ** 2 + (nodes[i][1] - z) ** 2;
         if (d < bd) { bd = d; best = i; }
       }
-      if (best < 0) return -1;
+      if (best < 0) break;
       if (this.clear(x, z, nodes[best][0], nodes[best][1], 0, y)) return best;
+      if (closest < 0) closest = best;
       tried.add(best);
     }
-    return -1;
+    return strict ? -1 : closest;
   }
 
   /**

@@ -76,7 +76,8 @@ export class MallShops {
       const add = (g, till, staff) => {
         const good = GOODS_BY_ID[g.id], shape = good.look.shape;
         const unit = this.display.add(shape, good.look.color, g.x, g.y, g.z, g.yaw, 1, labelFor(g.id));
-        this.spots.push({ ...g, shop, till, staff, good, unit, h: SHAPE_H[shape] });
+        // Where she stands to order it across the counter (worked out once: prompt() runs every frame).
+        this.spots.push({ ...g, shop, till, staff, good, unit, h: SHAPE_H[shape], order: staff ? till.herAt(g) : null });
       };
       for (const g of shop.goods) add(g, tills[0], false);
       tills.forEach((t, i) => { for (const g of shop.tills[i].goods) add(g, t, true); });
@@ -86,6 +87,12 @@ export class MallShops {
     this.loose.build();
     this._bags();
     await Promise.all(this.tills.map((t) => t.init()));
+    // The clerks drawn while their shop is in view (from the first frame of play: the warm-up
+    // draws them all), after Graphics has this frame's view planes (its observer came first).
+    const { camera } = this.ctx;
+    this._view = scene.onBeforeRenderObservable.add(() => {
+      if (this.time > 0) for (const t of this.tills) if (t.cashier) t.view(camera.globalPosition, graphics.viewPlanes);
+    });
     graphics.addCasters(this.bags);
   }
 
@@ -170,23 +177,25 @@ export class MallShops {
     const p = player.position, P = this._prompts, fx = Math.sin(player.yaw), fz = Math.cos(player.yaw);
     const item = this.held;
     if (item) {
-      const t = item.spot.till, stand = t.herAt(t.at(0)), d = Math.hypot(p.x - stand.x, p.z - stand.z);
+      const stand = item.spot.till.payAt, d = Math.hypot(p.x - stand.x, p.z - stand.z);
       if (d < AT_TILL && Math.abs(p.y - item.spot.shop.y) < 1) return this._show(P.pay, `Pay for ${item.good.name} · ${item.good.price} ◈`, d, () => this.pay());
       const s = item.spot, ds = Math.hypot(p.x - s.x, p.z - s.z);
       if (ds < REACH && ((s.x - p.x) * fx + (s.z - p.z) * fz) / (ds || 1) > 0.3) return this._show(P.back, `Put back ${item.good.name}`, ds, () => this.putBack());
       return null;
     }
-    let best = null, bd = Infinity, order = false;
+    // The good she is turned to most squarely, then the nearest: on a table the
+    // nearest alone was often the one beside what she faced (goods 0.45 m apart).
+    let best = null, bs = Infinity, bd = 0, order = false;
     for (const s of this.spots) {
       if (Math.abs(p.y - s.shop.y) > 1) continue;
       if (s.staff) {
         // Ordered across the counter: she stands before it, facing it.
-        const at = s.till.herAt(s), d = Math.hypot(p.x - at.x, p.z - at.z);
-        if (d < 0.8 && d < bd && -(fx * s.till.out.x + fz * s.till.out.z) > 0.3 && !s.till.busy) { best = s; bd = d; order = true; }
+        const at = s.order, d = Math.hypot(p.x - at.x, p.z - at.z);
+        if (d < 0.8 && d < bs && -(fx * s.till.out.x + fz * s.till.out.z) > 0.3 && !s.till.busy) { best = s; bs = bd = d; order = true; }
         continue;
       }
-      const d = Math.hypot(p.x - s.x, p.z - s.z);
-      if (d < REACH && d < bd && ((s.x - p.x) * fx + (s.z - p.z) * fz) / (d || 1) > 0.35) { best = s; bd = d; order = false; }
+      const d = Math.hypot(p.x - s.x, p.z - s.z), facing = ((s.x - p.x) * fx + (s.z - p.z) * fz) / (d || 1), score = 1 - facing + d * 0.3;
+      if (d < REACH && facing > 0.35 && score < bs) { best = s; bs = score; bd = d; order = false; }
     }
     if (!best) return null;
     const g = best.good;
@@ -327,6 +336,7 @@ export class MallShops {
     this.tl.clear();
     if (this.held || this.her.held) this.her.rest();
     player.hold = false;
+    this.ctx.scene.onBeforeRenderObservable.remove(this._view);
     for (const t of this.tills) t.dispose();
     graphics.removeCasters(this.bags || []);
     for (const b of this.bags || []) b.dispose();

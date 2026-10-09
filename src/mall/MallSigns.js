@@ -147,6 +147,24 @@ function signs() {
     music: [320, 60, brand('#7a2e8a', '#ffffff', 'Sound Box', '', dot('#4fe3ff')), 1.75],
     home2: [320, 60, brand('#d6b58a', '#3b2a1e', 'Nordic Living', '', null), 1.75],
     bags: [320, 60, brand('#26324a', '#f6dbe3', 'Bag & Travel', '', null), 1.75],
+    // The food court's stalls, the closed fronts upstairs (a hoarding, a note on a shutter).
+    takoSign: [320, 60, brand('#e8892f', '#ffffff', 'Tako Tako', 'たこ焼き · タピオカ', kanji('た', '#ffffff', '#e8892f')), 1.5],
+    udonSign: [320, 60, brand('#1d2433', '#fff8ee', 'Udon Kaze', '讃岐うどん', kanji('う', '#a9cde6', '#1d2433')), 1.5],
+    'soon:optical': [512, 128, (g, x, y, w, h) => {
+      g.fillStyle = '#ffffff'; g.fillRect(x, y, w, h);
+      g.fillStyle = '#26324a'; g.fillRect(x, y + h * 0.8, w, h * 0.2);
+      ring('#26324a')(g, x + w * 0.2, y + h * 0.3, h * 0.17);
+      centred(g, 'Mirai Optical', x + w * 0.28, y + h * 0.3, w * 0.5, h * 0.3, 900, '#26324a');
+      centred(g, 'NEW OPEN  11.1 SAT', x + w * 0.2, y + h * 0.62, w * 0.6, h * 0.2, 900, '#e27c9a');
+      centred(g, 'COMING SOON · 近日オープン · メガネ · コンタクト', x + w * 0.05, y + h * 0.9, w * 0.9, h * 0.11, 800, '#fff8ee');
+    }, 1.5],
+    closedToday: [96, 128, (g, x, y, w, h) => {
+      g.fillStyle = '#fbf8f2'; g.fillRect(x, y, w, h);
+      centred(g, '本日休業', x, y + h * 0.2, w, h * 0.16, 900, '#c0392b');
+      centred(g, 'Closed today', x, y + h * 0.38, w, h * 0.1, 800, '#26324a');
+      g.fillStyle = '#c9c4b8'; for (let i = 0; i < 3; i++) g.fillRect(x + w * 0.15, y + h * (0.55 + i * 0.1), w * 0.7, 3);
+      centred(g, 'Sound Box', x, y + h * 0.9, w, h * 0.08, 800, '#7a2e8a');
+    }, 2],
     // Wayfinding and notices.
     wayMarket: [320, 70, way('F', 'Hikari Fresh Market', 'スーパーマーケット'), 1.5],
     wayStyle: [320, 70, way('S', 'Sakura Style', 'ファッション'), 1.5],
@@ -160,6 +178,7 @@ function signs() {
     open: [96, 48, board('#2f8f5b', '#ffffff', 'OPEN')],
     gachaSign: [384, 72, board('#f2c230', '#e2574c', 'GACHA GACHA', 'ガチャガチャの森'), 1.5],
     crepe: [192, 72, board('#f6c1d1', '#7a2e8a', 'Crêpe', 'クレープ')],
+    puriHood: [192, 48, board('#e27c9a', '#ffffff', 'PURI ♡ PHOTO')],
     logo: [896, 176, (g, x, y, w, h) => {
       g.fillStyle = '#26324a'; g.fillRect(x, y, w, h);
       sakura(g, x + h * 0.55, y + h * 0.5, h * 0.36, '#f3a9be');

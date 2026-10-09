@@ -10,11 +10,12 @@ import { buildStorefronts } from './MallStorefronts.js';
 import { buildMarket } from './MallMarket.js';
 import { buildBoutique } from './MallBoutique.js';
 import { buildLot } from './MallLot.js';
-import { COURT_W, planLayout, siteTransform } from './MallPlan.js';
+import { BUILDING, CEILING, CONCOURSE, COURT_W, ENTRANCES, MARKET, ROOF, SOFFIT, UNITS, UPPER, UPPER_TOP, planLayout, siteTransform } from './MallPlan.js';
 import { MallNav } from './MallNav.js';
 import { Escalators } from './Escalators.js';
 import { GlassLift } from './GlassLift.js';
 import { IndoorLight, SHOP_RIG } from '../core/IndoorLight.js';
+import { MallVisibility } from './MallVisibility.js';
 
 /**
  * Hikari Mall, the place (MALL.md "world"): builds the site from the plan
@@ -93,7 +94,7 @@ export class MallWorld {
     const coolers = buildMarket(site, this.mats, this.signs);
     this.curtains = buildBoutique(site, this.mats, this.signs);
     this.lot = await buildLot(site, this.mats, this.signs, vehicles, concourse.trees);
-    const { meshes, casters } = site.build();
+    const { meshes, casters, zones } = site.build();
     this.doors = new MallDoors(scene, root, this.mats, ORIGIN);
     this.doors.build(coolers);
     this.escalators = new Escalators(this.ctx, root, this.mats, T);
@@ -102,9 +103,41 @@ export class MallWorld {
     this.meshes = [...meshes, ...this.lot.meshes, ...this.doors.meshes, ...this.curtains.meshes, ...steps, ...car.meshes];
     this.casters = [...casters, ...this.lot.casters, ...car.casters];
     graphics.addCasters(this.casters);
+    this._rooms(T, [...meshes, ...this.lot.meshes], zones);
 
     this.indoor = new IndoorLight(graphics, this.ctx.character, MALL_RIG);
     await this._capture();
+  }
+
+  /**
+   * The lot and the supermarket, drawn only while they can be seen
+   * (MallVisibility): the lot through the entrances' glass and the café's
+   * window, the supermarket through its open front. `statics`: the site's
+   * merged meshes and parked cars (nothing else switches them).
+   */
+  _rooms(T, statics, zones) {
+    const box = (r, y0, y1) => { const w = T.rect(r); return [w.x0, y0, w.z0, w.x1, y1, w.z1]; };
+    const site = T.rect(BUILDING);
+    const vis = this.visibility = new MallVisibility(this.ctx.graphics, { ...site, top: ROOF });
+    const cafe = UNITS.find((u) => u.kind === 'cafe');
+    this.rooms = {
+      lot: vis.room(null, [
+        ...ENTRANCES.map((e) => box({ x0: e.x - COURT_W / 2, x1: e.x + COURT_W / 2, z0: -0.3, z1: 0.3 }, 0, SOFFIT)),
+        box({ x0: cafe.x0, x1: cafe.x1, z0: -0.3, z1: 0.3 }, 0.3, 3.8),
+      ], MallVisibility.outside(statics, { x0: site.x0 + 0.5, z0: site.z0 + 0.5, x1: site.x1 - 0.5, z1: site.z1 - 0.5 })),
+      market: vis.room({ ...T.rect(MARKET), y0: -1, y1: CEILING },
+        [box({ x0: MARKET.x0, x1: MARKET.x1, z0: MARKET.z0 - 0.3, z1: MARKET.z0 + 0.3 }, 0, CEILING)],
+        MallVisibility.within(statics, T.rect(MARKET), CEILING)),
+    };
+    // The trees outside go with the lot, the cooler doors with the supermarket (their bounds reach past the rooms' rects).
+    vis.add(this.rooms.lot, ...this.lot.outdoorTrees);
+    vis.add(this.rooms.market, ...this.doors.doorMeshes);
+    // The furnished shops upstairs, seen only through their glass along the galleries.
+    const K = CONCOURSE;
+    this.rooms.upperShops = vis.room({ ...T.rect({ x0: K.x0, x1: K.x1, z0: K.z0 - 4, z1: K.z0 }), y0: UPPER, y1: UPPER_TOP },
+      [K.z0, K.z1].map((z) => box({ x0: K.x0, x1: K.x1, z0: z - 0.3, z1: z + 0.3 }, UPPER, UPPER_TOP)), zones.upperShops);
+    // After Graphics has this frame's camera planes (its observer came first).
+    this._visObserver = this.ctx.scene.onBeforeRenderObservable.add(() => vis.update(this.ctx.camera.globalPosition));
   }
 
   /**
@@ -193,6 +226,8 @@ export class MallWorld {
       const mine = new Set(this.meshes);
       this.indoor.leave(scene.meshes.filter((m) => m.isEnabled() && !mine.has(m)));
     }
+    scene.onBeforeRenderObservable.remove(this._visObserver);
+    this.visibility.dispose();
     graphics.removeCasters(this.casters);
     this.escalators.dispose();
     this.lift.dispose();

@@ -1,6 +1,6 @@
 import { Quaternion } from '@babylonjs/core';
 import { Batch, C } from './MallKit.js';
-import { DOOR_H, ENTRANCES } from './MallPlan.js';
+import { DOOR_H, ENTRANCES, COURT_W } from './MallPlan.js';
 import { writeTRS } from '../world/Instances.js';
 
 /**
@@ -12,6 +12,13 @@ import { writeTRS } from '../world/Instances.js';
  * rewritten only while a door moves. The meshes (`meshes`) belong to MallWorld.
  */
 const LEAF_T = 0.04, LEAF_Z = -0.2;       // leaves run just outside the glass line, in the track
+// A leaf reaches up under the track housing (MallBuilding: DOOR_H + 0.18 up):
+// stopping at the door head it left a slot of daylight over every door.
+const LEAF_H = DOOR_H + 0.16;
+// The leaves open as far as the side lights go, a hair short of the
+// portal's piers: the 1.2 m side lights are their pockets, so the 1.8 m
+// leaves part 2.3 m clear (they used to slide into the piers).
+const POCKET = (COURT_W - ENTRANCES[0].w) / 2 - 0.06;
 const OPEN_ANGLE = 1.75;
 const _q = new Quaternion();
 const ease = (k) => k * k * (3 - 2 * k);
@@ -19,7 +26,7 @@ const ease = (k) => k * k * (3 - 2 * k);
 export class MallDoors {
   constructor(scene, root, mats, origin) {
     Object.assign(this, { scene, root, mats, origin });
-    this.slides = [];     // { e, leaves: [{ closed, open }], open }
+    this.slides = [];     // { e, leaves: [{ closed, open, yaw }], open }
     this.swings = [];     // { hinge, theta, sign, cx, cz, facing, open }
     this.meshes = [];
   }
@@ -27,16 +34,23 @@ export class MallDoors {
   /** Build the entrance leaves and the cooler doors (specs from MallMarket). */
   build(coolers) {
     const M = this.mats;
-    const lw = ENTRANCES[0].w / 2 + 0.04;
-    // Sliding leaf: glass in an aluminium frame with a push bar, origin at its foot centre.
+    // Sliding leaf, origin at its foot centre, its meeting edge at +x: glass
+    // in a slim aluminium frame (stiles, a deeper kick rail), a black rubber
+    // seal on the meeting stile, and the frosted safety band at waist height
+    // every Japanese automatic door carries (without it the open and shut
+    // doors read the same). The right-hand leaves are the same leaf turned
+    // half round, so the seals meet in the middle.
     const leaf = new Batch(this.scene, 'mall:leaf');
-    leaf.panel(M.glass, C.white, 0, 0, [0, -1], lw - 0.08, 0.08, DOOR_H - 0.08);
-    for (const [x0, y0, x1, y1] of [[-lw / 2, 0, lw / 2, 0.08], [-lw / 2, DOOR_H - 0.08, lw / 2, DOOR_H], [-lw / 2, 0, -lw / 2 + 0.05, DOOR_H], [lw / 2 - 0.05, 0, lw / 2, DOOR_H]]) {
-      leaf.box(M.metal, C.frame, x0, y0, -LEAF_T / 2, x1, y1, LEAF_T / 2);
+    const half = ENTRANCES[0].w / 4, st = 0.06, kick = 0.14, rail = 0.08, t = LEAF_T / 2;
+    leaf.panel(M.glass, C.white, 0, 0, [0, -1], 2 * (half - st), kick, LEAF_H - rail);
+    for (const [x0, y0, x1, y1] of [[-half, 0, half, kick], [-half, LEAF_H - rail, half, LEAF_H], [-half, kick, -half + st, LEAF_H - rail], [half - st, kick, half - 0.012, LEAF_H - rail]]) {
+      leaf.box(M.metal, C.steel, x0, y0, -t, x1, y1, t);
     }
+    leaf.box(M.matte, C.rubber, half - 0.012, 0.02, -t + 0.006, half, LEAF_H - 0.02, t - 0.006);
+    for (const f of [-1, 1]) leaf.panel(M.matte, C.snow, 0, f * (t - 0.012), [0, f], 2 * (half - st), 1.0, 1.08);
     this.leafMeshes = leaf.build(this.root);
     for (const e of ENTRANCES) {
-      const leaves = [-1, 1].map((s) => ({ closed: e.x + s * (lw / 2 - 0.02), open: e.x + s * (lw / 2 - 0.02 + lw - 0.1) }));
+      const leaves = [-1, 1].map((s) => ({ closed: e.x + s * half, open: e.x + s * (half + POCKET), yaw: s > 0 ? Math.PI : 0 }));
       this.slides.push({ e, leaves, open: 0 });
     }
     this._leafMatrices = new Float32Array(this.slides.length * 2 * 16);
@@ -68,18 +82,22 @@ export class MallDoors {
   _instance(mesh, matrices) {
     mesh.thinInstanceSetBuffer('matrix', matrices, 16, false);
     mesh.thinInstanceRefreshBoundingInfo(false);
-    // Bounds of the closed doors, grown by an open leaf's reach so opening never culls them.
+    // Bounds of the closed doors, grown by an open leaf's reach so opening never
+    // culls them, placed by the mesh's world matrix (without it the box sat at
+    // the world's origin and every door was culled: the doorways stood empty).
     const bb = mesh.getBoundingInfo();
-    bb.reConstruct(bb.minimum.subtractFromFloats(1, 0, 1), bb.maximum.addInPlaceFromFloats(1, 0, 1));
+    bb.reConstruct(bb.minimum.subtractFromFloats(1.2, 0, 1.2), bb.maximum.addInPlaceFromFloats(1.2, 0, 1.2), mesh.getWorldMatrix());
     mesh.doNotSyncBoundingInfo = true;
   }
 
   _writeLeaves() {
-    _q.set(0, 0, 0, 1);
     let i = 0;
     for (const s of this.slides) {
       const k = ease(s.open);
-      for (const l of s.leaves) writeTRS(this._leafMatrices, 16 * i++, l.closed + (l.open - l.closed) * k, 0, LEAF_Z, _q);
+      for (const l of s.leaves) {
+        _q.set(0, Math.sin(l.yaw / 2), 0, Math.cos(l.yaw / 2));
+        writeTRS(this._leafMatrices, 16 * i++, l.closed + (l.open - l.closed) * k, 0, LEAF_Z, _q);
+      }
     }
   }
 
@@ -92,37 +110,43 @@ export class MallDoors {
   /**
    * Per frame: `people` are world positions (her first, then shoppers).
    * Entrance doors open for anyone within ~3 m of the doorway, either side;
-   * a cooler door for someone standing at it.
+   * a cooler door for someone standing at it. Indexed loops only: for…of
+   * over the people for each of the 46 doors made an iterator per door per
+   * frame (~10 KB of garbage a frame).
    */
   update(dt, people) {
-    const ox = this.origin.x, oz = this.origin.z;
+    const ox = this.origin.x, oz = this.origin.z, n = people.length;
     let leaves = false;
-    for (const s of this.slides) {
+    for (let i = 0; i < this.slides.length; i++) {
+      const s = this.slides[i], reach = s.e.w / 2 + 1.2;
       let near = false;
-      for (const p of people) {
-        const x = ox - p.x, z = oz - p.z;
-        if (Math.abs(x - s.e.x) < s.e.w / 2 + 1.2 && Math.abs(z) < 3.2 && p.y < 2) { near = true; break; }
+      for (let k = 0; k < n && !near; k++) {
+        const p = people[k];
+        near = Math.abs(ox - p.x - s.e.x) < reach && Math.abs(oz - p.z) < 3.2 && p.y < 2;
       }
-      const was = s.open;
-      s.open += ((near ? 1 : 0) - s.open) * (1 - Math.exp(-(near ? 7 : 3.5) * dt));
-      if (Math.abs(s.open - was) > 1e-4) leaves = true;
+      if (this._ease(s, near, near ? 7 : 3.5, dt)) leaves = true;
     }
     if (leaves) {
       this._writeLeaves();
-      for (const m of this.leafMeshes) m.thinInstanceBufferUpdated('matrix');
+      for (let i = 0; i < this.leafMeshes.length; i++) this.leafMeshes[i].thinInstanceBufferUpdated('matrix');
     }
     let doors = false;
     for (let i = 0; i < this.swings.length; i++) {
       const d = this.swings[i];
       let near = false;
-      for (const p of people) {
-        const x = ox - p.x, z = oz - p.z;
-        if ((x - d.cx) ** 2 + (z - d.cz) ** 2 < 0.36) { near = true; break; }
+      for (let k = 0; k < n && !near; k++) {
+        const p = people[k], x = ox - p.x - d.cx, z = oz - p.z - d.cz;
+        near = x * x + z * z < 0.36;
       }
-      const was = d.open;
-      d.open += ((near ? 1 : 0) - d.open) * (1 - Math.exp(-(near ? 6 : 3) * dt));
-      if (Math.abs(d.open - was) > 1e-4) { this._writeDoor(d, i); doors = true; }
+      if (this._ease(d, near, near ? 6 : 3, dt)) { this._writeDoor(d, i); doors = true; }
     }
-    if (doors) for (const m of this.doorMeshes) m.thinInstanceBufferUpdated('matrix');
+    if (doors) for (let i = 0; i < this.doorMeshes.length; i++) this.doorMeshes[i].thinInstanceBufferUpdated('matrix');
+  }
+
+  /** Move a door's `open` toward 1 (someone near) or 0 at `rate`; whether it moved enough to redraw. */
+  _ease(d, near, rate, dt) {
+    const was = d.open;
+    d.open += ((near ? 1 : 0) - d.open) * (1 - Math.exp(-rate * dt));
+    return Math.abs(d.open - was) > 1e-4;
   }
 }

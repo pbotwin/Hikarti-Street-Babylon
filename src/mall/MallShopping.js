@@ -54,6 +54,7 @@ export class MallShopping {
     this.time = 0;
     this._walk = null;
     this._slot = null;        // the corral slot a prompt is about
+    this._claimed = null;     // the corral slot she is taking a cart from / returning hers to (not the shoppers')
     this._handsOn = null;     // the cart her hands went back on at the end of an action
     // One prompt object per action, made once (prompt() runs every frame).
     const P = (label, icon, priority, run) => ({ label, icon, priority, distance: 0, run });
@@ -90,8 +91,9 @@ export class MallShopping {
     this._corrals();
     this.bags = new Bags(scene, graphics, this.goods);
     this.checkouts = new Checkouts(this);
-    // The staffed lanes' cashiers also serve the shoppers (MallShoppers).
+    // The staffed lanes' cashiers also serve the shoppers (MallShoppers), who take their carts from the corrals too.
     this.ctx.checkouts = this.checkouts;
+    this.ctx.corrals = this;
     this.boot = new Boot(this);
     await Promise.all([this.checkouts.init(), this.boot.init()]);
     this._onPanel = (e) => {
@@ -107,6 +109,7 @@ export class MallShopping {
   /** Carts nested in each corral's slots (the layout's count of them). */
   _corrals() {
     this.slots = [];
+    this._byCorral = new Map();
     for (const c of this.ctx.layout.cartCorrals) {
       c.slots.forEach((s, i) => this.slots.push({ ...s, corral: c, cart: i < c.count ? this.fleet.add(s) : null }));
     }
@@ -145,6 +148,54 @@ export class MallShopping {
   /** A cart lifts the back gate of the one it is nested into. */
   _nest() {
     for (const s of this.slots) if (s.cart) s.cart.setNested(!!this._neighbour(s, -1)?.cart);
+  }
+
+  // ------------------------------------------------------------ the shoppers' carts (ctx.corrals)
+  /**
+   * A corral's open end (layout corral): its last full slot (`full`), or
+   * the free slot behind that (null: none, or it is the one she is
+   * taking a cart from / returning hers to). A corral's slots run from its
+   * closed end and fill from there (MallPlan).
+   */
+  end(corral, full) {
+    const own = this._corralSlots(corral);
+    let last = -1;
+    for (let i = 0; i < own.length; i++) if (own[i].cart) last = i;
+    const slot = own[full ? last : last + 1] || null;
+    return slot === this._claimed ? null : slot;
+  }
+
+  /**
+   * The cart at a corral's open end, out of its nest for a shopper (null:
+   * none). Shoppers' carts were new ones: the corral never emptied, and
+   * the one taken stood inside the corral's own.
+   */
+  lend(corral) {
+    const slot = this.end(corral, true);
+    if (!slot) return null;
+    const cart = slot.cart;
+    slot.cart = null;
+    cart.setNested(false);
+    this._nest();
+    return cart;
+  }
+
+  /** A shopper's cart nested back into a corral (false: no room; it is still theirs). */
+  nestBack(corral, cart) {
+    const slot = this.end(corral, false);
+    if (!slot) return false;
+    cart.moveTo(slot.x, slot.z, slot.yaw);
+    slot.cart = cart;
+    this._nest();
+    return true;
+  }
+
+  _corralSlots(corral) {
+    const own = this._byCorral.get(corral);
+    if (own) return own;
+    const list = this.slots.filter((s) => s.corral === corral);
+    this._byCorral.set(corral, list);
+    return list;
   }
 
   /**
@@ -280,11 +331,19 @@ export class MallShopping {
     next();
   }
 
+  /**
+   * She is on the ground floor, where everything of this module is. The
+   * upper floor's rooms over the market (the cinema, the tea house) had
+   * "Take" prompts for the shelves below, and from the gallery over the
+   * concourse her parked cart's.
+   */
+  _ground() { return Math.abs(this.ctx.player.position.y - this.ctx.layout.building.floorY) < 1; }
+
   /** The pack she would take (or put back) now, under the camera's aim; and its marker. */
   _aim() {
     const pl = this.ctx.player, t = this._aimAt;
     t.f = t.u = null;
-    if (!this.busy && !this.ctx.vehicles.driving && (!pl.ride || this.pushing.active)) {
+    if (!this.busy && !this.ctx.vehicles.driving && (!pl.ride || this.pushing.active) && this._ground()) {
       const rig = this.ctx.cameraRig, cp = Math.cos(rig.pitch);
       _eye.copyFrom(this.ctx.camera.position);
       _dir.set(Math.sin(rig.yaw) * cp, -Math.sin(rig.pitch), Math.cos(rig.yaw) * cp);
@@ -300,7 +359,7 @@ export class MallShopping {
 
   // ------------------------------------------------------------ prompt
   prompt() {
-    if (this.busy || this.ctx.vehicles.driving || (this.ctx.player.ride && !this.pushing.active) || this.clothes) return null;
+    if (this.busy || this.ctx.vehicles.driving || (this.ctx.player.ride && !this.pushing.active) || this.clothes || !this._ground()) return null;
     const P = this._prompts;
     const boot = this.boot.prompt();
     if (boot) return boot;
@@ -373,8 +432,12 @@ export class MallShopping {
   // ------------------------------------------------------------ carts
   /** Walk to a cart's handle and take hold (pulling it out of its nest in a corral). */
   takeCart(cart, slot) {
+    if (slot) this._claimed = slot;
     cart.pusher(_spot);
-    this.walkTo(_spot.x, _spot.z, () => {
+    this.walkTo(_spot.x, _spot.z, (short) => {
+      // Stopped on the way (a shopper, another cart): her controls back. The last
+      // steps slid her the rest of the way, through whatever stopped her.
+      if (short > 0.5) { this._claimed = null; return; }
       const her = this.her;
       her.freeze(true);
       const yaw0 = her.yaw, x0 = her.x, z0 = her.z;
@@ -394,7 +457,7 @@ export class MallShopping {
           this._hands(cart, 1);
         }, done: () => {
           if (!slot) return;
-          slot.cart = null;
+          slot.cart = this._claimed = null;
           this._nest();
           cart.setNested(false);
           this.tones.rattle(0.6);
@@ -426,7 +489,11 @@ export class MallShopping {
    */
   returnCart(slot) {
     const cart = this.mine, end = this._end(slot), fx = Math.sin(slot.yaw), fz = Math.cos(slot.yaw);
-    const stuck = () => this.ctx.hud.toast('The cart won’t go in', 'Line it up with the open end of the rails');
+    this._claimed = slot;
+    const stuck = () => {
+      this._claimed = null;
+      this.ctx.hud.toast('The cart won’t go in', 'Line it up with the open end of the rails');
+    };
     // Pushed up to where its collider meets the cart ahead's, then nested into it by hand.
     const into = () => this.pushing.drive(slot.x - fx * NEST, slot.z - fz * NEST, (arrived) => {
       if (!arrived) { stuck(); return; }
@@ -440,7 +507,7 @@ export class MallShopping {
           cart.pusher(_spot);
           this.her.place(_spot.x, _spot.z, cart.yaw);
           this._hands(cart, 1);
-        }, done: () => { slot.cart = cart; this._nest(); this.tones.rattle(0.8); } },
+        }, done: () => { slot.cart = cart; this._claimed = null; this._nest(); this.tones.rattle(0.8); } },
         ...this._handsOff(cart),
         // Back out past the open end (a cart length clear of it), turning to face away.
         this._go(() => {
@@ -472,10 +539,10 @@ export class MallShopping {
     this.ctx.animation.act.hands = w > 0.001 ? h : null;
   }
 
-  /** She walks somewhere by herself (controls off), then `done`. */
+  /** She walks somewhere by herself (controls off), then `done(how far short of it she stopped)`. */
   walkTo(x, z, done) {
     this._walk = { x, z };
-    this.ctx.player.autoWalk = { x, z, done: () => { this._walk = null; done(); } };
+    this.ctx.player.autoWalk = { x, z, done: (d) => { this._walk = null; done(d); } };
   }
 
   // ------------------------------------------------------------ her moves
@@ -874,7 +941,7 @@ export class MallShopping {
     this.her.rest();
     hud.panel('cart', null);
     this.hanging.length = 0;
-    this.ctx.checkouts = null;
+    this.ctx.checkouts = this.ctx.corrals = null;
     this.boot.dispose();
     this.checkouts.dispose();
     this.bags.dispose();

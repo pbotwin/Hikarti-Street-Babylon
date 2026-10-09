@@ -45,6 +45,9 @@ layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
   (money for this trip, `TRIP_BUDGET` from the catalog).
 - `hud`: `{ toast(title, sub), panel(name, html|null) }` small DOM helpers;
   modules add their own DOM under `#ui` and remove it in `dispose()`.
+- `corrals` (MallShopping): the corrals' nested carts, shared by her and the
+  shoppers: `end(corral, full)` the open end's last full / first free slot,
+  `lend(corral)` takes that cart out, `nestBack(corral, cart)` puts one back.
 - `fashion.addBag(mesh, items)`: a paid bag from another shop into her hand
   (it goes to the cart and the boot with the clothing store's bags).
 - Heroine hooks: `animation.act.hands = { wl, wr, l:[x,y,z], r:[x,y,z] }` puts
@@ -70,7 +73,7 @@ layout (= world.layout), fashion (MallFashion), wallet, hud, effects`
   car: { x, z, yaw, model: 'car_kei_pink' },  // her parking bay
   exit: { x0, z0, x1, z1 },            // driving into this ends the trip
   entrances: [{ x, z, yaw, w }],       // automatic doors (lot ↔ hall)
-  cartCorrals: [{ x, z, yaw, count, slots: [{ x, z, yaw }] }],
+  cartCorrals: [{ x, z, yaw, count, slots: [{ x, z, yaw }] }],   // slots from the closed end to the open one (carts face the closed end); the first `count` hold carts
   grocery: {
     zone: { x0, z0, x1, z1 },
     shelves: [{ id, aisle, x, z, yaw, w, depth, levels: [y, …], face: { x, z } }],

@@ -1,6 +1,7 @@
 import { C, lin } from './MallKit.js';
 import { mulberry32 } from '../world/rng.js';
 import { ROW, CONCOURSE, CEILING, UNITS, UNIT_DEPTH, UPPER, SOFFIT, UPPER_CEILING, UPPER_UNITS, UPPER_ROOMS, UPPER_TOP, SHOPS, SHOP_H } from './MallPlan.js';
+import { upperShop, closedFront } from './UpperShops.js';
 
 /**
  * The shops along Hikari Mall's concourse, all of them walked into. On the
@@ -12,8 +13,7 @@ import { ROW, CONCOURSE, CEILING, UNITS, UNIT_DEPTH, UPPER, SOFFIT, UPPER_CEILIN
  * with its noren and food samples, a game centre with crane games. On the
  * upper floor, round the atrium, the walk-in rooms (UPPER_ROOMS: the food
  * court, the cinema's lobby, a tea house, a bag shop) and the fronts of
- * more shops seen through their glass (a picture of the shop inside a step
- * behind it). Every shop's till and display table stands where the plan
+ * more shops, furnished rooms seen through their glass (UpperShops). Every shop's till and display table stands where the plan
  * (SHOPS) says: MallShops sells from them.
  *
  * Shelves full of goods are boxes with a painted picture of their goods
@@ -25,6 +25,10 @@ const FRONT = ROW.z1;            // the shopfronts' line, facing +z (the concour
 const BACK = FRONT - UNIT_DEPTH;
 const H = SHOP_H;
 const GLASS_TOP = 3.1;
+// A doorway's clear height. At 2.4 m the camera behind her (about 2.3–2.6 m
+// up) met the head as she walked in, and its near plane cut the solid
+// header: the top half of the screen went black.
+const DOOR_HEAD = 2.8;
 
 /**
  * Per kind: floor finish (null: a plain colour, `carpet`), wall colour,
@@ -68,7 +72,8 @@ export function buildStorefronts(site, mats, signs) {
     still.box(mats.satin, C.stone, x - 0.2, 0, FRONT - 0.05, x + 0.2, SOFFIT, FRONT + 0.3);
     site.collide(x - 0.2, FRONT - 0.05, x + 0.2, FRONT + 0.3, 0, SOFFIT);
   }
-  upperFronts(ctx);
+  // The furnished rooms upstairs are their own zone: hidden as a whole while nothing sees them.
+  upperFronts(ctx, site.zone('upperShops').still);
   const up = { ...ctx, y: UPPER };
   for (const kind of Object.keys(UPPER_ROOMS)) {
     const sh = shopOf(kind);
@@ -95,11 +100,10 @@ function shopfront({ site, M, signs, still }, u, sh) {
   }
   site.collide(u.x0, FRONT - 0.05, d0, FRONT + 0.15, 0, H);
   site.collide(d1, FRONT - 0.05, u.x1, FRONT + 0.15, 0, H);
-  // The doorway: a header over it, a stainless threshold; the transom above the glass.
+  // The doorway: a slim head with glass over it, a stainless threshold; the top rail.
+  doorway(still, M, d0, d1, z, 0, DOOR_HEAD, GLASS_TOP);
   still.box(M.metal, C.frame, x0, GLASS_TOP, z - 0.05, x1, H, z + 0.05);
-  still.box(M.metal, C.frame, d0, 2.4, z - 0.06, d1, GLASS_TOP, z + 0.06);
-  still.box(M.metal, C.steel, d0, 0.01, z - 0.12, d1, 0.02, z + 0.12);
-  site.collide(d0, FRONT - 0.05, d1, FRONT + 0.15, 2.4, H);
+  site.collide(d0, FRONT - 0.05, d1, FRONT + 0.15, DOOR_HEAD, H);
   still.panel(signs.material, C.white, d0 - 0.45, z + 0.012, [0, 1], 0.36, 1.55, 1.73, signs.rect('open'));
   // Shutter box, fascia, sign; a light line over the glass.
   still.box(M.satin, C.steel, x0, H, z - 0.05, x1, H + 0.22, z + 0.2);
@@ -108,6 +112,17 @@ function shopfront({ site, M, signs, still }, u, sh) {
   still.panel(signs.material, C.white, cx, FRONT + 0.265, [0, 1], sw, 4.28 - sh2 / 2, 4.28 + sh2 / 2, signs.rect(u.kind));
   still.flat(M.glow, C.light, x0, z + 0.2, x1, z + 0.26, H + 0.215, true);
   site.collide(u.x0, FRONT - 0.05, u.x1, FRONT + 0.25, H, SOFFIT);
+}
+
+/**
+ * An open doorway in a glass front at z, floor y: a slim head at `head`
+ * with a glass transom over it up to `top` (a solid block of frame there
+ * read as a black slab over every door), a stainless threshold.
+ */
+function doorway(b, M, d0, d1, z, y, head, top) {
+  b.box(M.metal, C.frame, d0, y + head, z - 0.06, d1, y + head + 0.08, z + 0.06);
+  b.panel(M.glass, C.white, (d0 + d1) / 2, z, [0, 1], d1 - d0, y + head + 0.08, y + top);
+  b.box(M.metal, C.steel, d0, y + 0.01, z - 0.12, d1, y + 0.02, z + 0.12);
 }
 
 /** The room behind the front: floor, walls, ceiling with its lights (the café runs through to the lot's window); its walls and ceiling collide. */
@@ -377,51 +392,42 @@ const DRESS = {
 
 // ---------------------------------------------------------------- upper floor
 /**
- * The upper floor's shops on both sides of the atrium. The walk-in rooms
+ * The upper floor's shops on both sides of the atrium, their fronts the
+ * galleries' edge on that side (they collide). The walk-in rooms
  * (UPPER_ROOMS) get a glass front round a doorway (the food court's is
- * open); the others a frame and glass, and a step behind the glass the
- * shop itself (a picture of its inside, lit, with a floor and ceiling
- * before it). The fronts are the galleries' edge on that side: they collide.
+ * open); the others are rooms seen through their glass (UpperShops), or
+ * closed off: one behind a "coming soon" hoarding, one behind its shutter
+ * (all of them into `rooms`, a batch of their own).
  */
-const ROOMS = { sports: 'roomShelves', home: 'roomShelves', optical: 'roomShelves', kids: 'roomShelves', wear: 'roomRacks', salon: 'roomRacks', music: 'roomShelves', home2: 'roomShelves' };
-const TINTS = ['#ffffff', '#fff3ea', '#eef6ff', '#f7ffef'];
-function upperFronts({ site, M, signs, still }) {
+const CLOSED = { optical: 'hoarding', music: 'shutter' };
+function upperFronts({ site, M, signs, still }, rooms) {
   const sides = [[UPPER_UNITS.south, CONCOURSE.z0, 1], [UPPER_UNITS.north, CONCOURSE.z1, -1]];
-  const top = UPPER_TOP, depth = 1.3;
-  let n = 0;
+  const top = UPPER_TOP;
   for (const [units, z, f] of sides) {
     for (const [kind, x0, x1] of units) {
-      const cx = (x0 + x1) / 2, w = x1 - x0, zb = z - f * depth, sh = UPPER_ROOMS[kind] ? shopOf(kind) : null;
-      if (!sh) {
-        // Shop: floor, ceiling with a light line, the picture across its back.
-        still.flat(M.hallFloor, C.white, x0, Math.min(z, zb), x1, Math.max(z, zb), UPPER + 0.005);
-        still.flat(M.ceiling, C.white, x0, Math.min(z, zb), x1, Math.max(z, zb), top, true);
-        still.flat(M.glow, C.light, x0 + 0.3, Math.min(z, zb) + 0.5, x1 - 0.3, Math.min(z, zb) + 0.65, top - 0.01, true);
-        const bays = Math.max(1, Math.round(w / 6.4));
-        for (let i = 0; i < bays; i++) {
-          still.panel(signs.material, col(TINTS[(n + i) % TINTS.length]), x0 + w * (i + 0.5) / bays, zb + f * 0.01, [0, f], w / bays, UPPER, top, signs.rect(ROOMS[kind]));
-        }
-      }
-      // Front: glass (either side of the doorway), frame and mullions; the fascia and sign above.
-      const spans = !sh ? [[x0 + 0.2, x1 - 0.2]] : sh.door ? [[x0 + 0.2, sh.door[0]], [sh.door[1], x1 - 0.2]] : [];
+      const cx = (x0 + x1) / 2, w = x1 - x0, sh = UPPER_ROOMS[kind] ? shopOf(kind) : null;
+      if (CLOSED[kind]) closedFront(rooms, M, signs, kind, x0, x1, z, f, CLOSED[kind]);
+      else if (!sh) upperShop(rooms, M, kind, x0, x1, z, f);
+      // Front: glass (either side of the doorway; none before a shutter or hoarding), frame and mullions; the fascia and sign above.
+      const spans = CLOSED[kind] ? [] : !sh ? [[x0 + 0.2, x1 - 0.2]] : sh.door ? [[x0 + 0.2, sh.door[0]], [sh.door[1], x1 - 0.2]] : [];
       for (const [a, b] of spans) {
         still.panel(M.glass, C.white, (a + b) / 2, z + f * 0.02, [0, f], b - a, UPPER + 0.08, top);
         const m = Math.max(1, Math.round((b - a) / 1.6));
         for (let i = 0; i <= m; i++) { const x = a + (b - a) * i / m; still.box(M.metal, C.frame, x - 0.035, UPPER, z - 0.04, x + 0.035, top, z + 0.04); }
         still.box(M.metal, C.frame, a, UPPER, z - 0.05, b, UPPER + 0.1, z + 0.05);
-        site.collide(a === x0 + 0.2 ? x0 : a, z - 0.06, b === x1 - 0.2 ? x1 : b, z + 0.06, UPPER, top);
       }
+      if (CLOSED[kind] || !sh) site.collide(x0, z - 0.06, x1, z + 0.06, UPPER, top);
+      else for (const [a, b] of spans) site.collide(a === x0 + 0.2 ? x0 : a, z - 0.06, b === x1 - 0.2 ? x1 : b, z + 0.06, UPPER, top);
       if (sh?.door) {
-        still.box(M.metal, C.frame, sh.door[0], UPPER + 2.4, z - 0.05, sh.door[1], top, z + 0.05);
-        site.collide(sh.door[0], z - 0.06, sh.door[1], z + 0.06, UPPER + 2.4, top);
+        doorway(still, M, sh.door[0], sh.door[1], z + f * 0.02, UPPER, DOOR_HEAD, top - UPPER);
+        site.collide(sh.door[0], z - 0.06, sh.door[1], z + 0.06, UPPER + DOOR_HEAD, top);
       }
       still.box(M.satin, C.snow, x0, top, Math.min(z, z + f * 0.25), x1, UPPER_CEILING, Math.max(z, z + f * 0.25));
       site.collide(x0, Math.min(z, z + f * 0.25), x1, Math.max(z, z + f * 0.25), top, UPPER_CEILING);
       const sw = Math.min(w - 1.2, 5.2), sh2 = sw / signs.aspect(kind);
       still.panel(signs.material, C.white, cx, z + f * 0.265, [0, f], sw, (top + UPPER_CEILING) / 2 - sh2 / 2, (top + UPPER_CEILING) / 2 + sh2 / 2, signs.rect(kind));
-      // Party walls between shops.
-      still.box(M.satin, C.stone, x0 - 0.15, UPPER, Math.min(z, zb) - (f < 0 ? 0.3 : 0), x0 + 0.15, UPPER_CEILING, Math.max(z, zb) + (f > 0 ? 0.3 : 0));
-      n++;
+      // A pilaster at the party wall, on the gallery's side of the front (the rooms' own walls stand behind it).
+      if (x0 > CONCOURSE.x0) still.box(M.satin, C.stone, x0 - 0.15, UPPER, Math.min(z, z + f * 0.3), x0 + 0.15, UPPER_CEILING, Math.max(z, z + f * 0.3));
     }
   }
 }
@@ -463,9 +469,11 @@ const UPPER_DRESS = {
       cast.box(M.metal, C.steel, c.x0, y, sh.z0 + 0.05, c.x1, ky, sh.z0 + 0.65);
       site.collide(c.x0, sh.z0, c.x1, sh.z0 + 0.65, y, ky);
       for (let k = 0; k < 3; k++) cast.cylinder(M.metal, C.steel, c.x0 + 1.2 + k * 1.6, ky, sh.z0 + 0.35, 0.2, 0.3, 12);
-      still.panel(signs.material, C.white, (c.x0 + c.x1) / 2, sh.z0 + 0.02, [0, 1], c.x1 - c.x0 - 1, y + 1.5, y + 2.4, signs.rect(i ? 'ramenMenu' : 'cafeMenu'));
-      cast.box(M.satin, i ? C.navy : C.orange, c.x0 - 0.1, y + 2.5, c.z0 - 0.3, c.x1 + 0.1, y + 2.85, c.z1 + 0.2);
-      still.panel(signs.material, C.white, (c.x0 + c.x1) / 2, c.z1 + 0.205, [0, 1], 3.2, y + 2.53, y + 2.82, signs.rect(i ? 'ramenMenu' : 'samples'));
+      const mx = (c.x0 + c.x1) / 2, name = i ? 'udonSign' : 'takoSign';
+      for (const dx of [-1.4, 1.4]) still.panel(signs.material, C.white, mx + dx, sh.z0 + 0.02, [0, 1], 2.4, y + 1.35, y + 2.55, signs.rect(i ? 'udonMenu' : 'takoMenu'));
+      still.panel(signs.material, C.white, mx, sh.z0 + 0.02, [0, 1], 2.0, y + 1.35, y + 1.85, signs.rect(i ? 'ramenMenu' : 'samples'));
+      cast.box(M.satin, i ? C.navy : C.orange, c.x0 - 0.1, y + 2.5, c.z0 - 0.3, c.x1 + 0.1, y + 2.95, c.z1 + 0.2);
+      still.panel(signs.material, C.white, mx, c.z1 + 0.205, [0, 1], 0.4 * signs.aspect(name), y + 2.52, y + 2.92, signs.rect(name));
       still.flat(M.glow, C.light, c.x0, c.z0 - 0.25, c.x1, c.z1 + 0.15, y + 2.49, true);
       // Partitions either side of the stall.
       for (const x of [c.x0 - 0.1, c.x1 + 0.1]) {
@@ -480,7 +488,12 @@ const UPPER_DRESS = {
     const { M, signs, cast, still, site, y } = ctx;
     const back = sh.z1, c = sh.tills[0].counter;
     for (const x of [-33.6, -31.0]) still.panel(signs.material, C.white, x, back - 0.02, [0, -1], 2.2, y + 1.7, y + 2.6, signs.rect('cinemaMenu'));
-    still.panel(signs.material, C.white, -25.0, back - 0.02, [0, -1], 4.0, y + 0.3, y + 2.9, signs.rect('roomCinema'));
+    // Now showing: film posters in lit frames along the back wall.
+    ['filmStars', 'filmSummer', 'filmDragon'].forEach((id, k) => {
+      const x = -26.6 + k * 1.6;
+      still.box(M.metal, C.gold, x - 0.5, y + 0.85, back - 0.06, x + 0.5, y + 2.55, back - 0.01);
+      still.panel(signs.material, C.white, x, back - 0.065, [0, -1], 0.9, y + 0.95, y + 2.45, signs.rect(id));
+    });
     // Behind the counter: the popcorn machine (a lit glass box), the drinks machine.
     cast.box(M.satin, C.red, -35.3, y, back - 0.7, -34.3, y + 1.0, back - 0.1);
     still.box(M.glow, col('#ffe7a0'), -35.2, y + 1.0, back - 0.62, -34.4, y + 1.6, back - 0.18);
@@ -510,18 +523,33 @@ const UPPER_DRESS = {
     const { M, signs, cast, still, y } = ctx;
     const c = sh.tills[0].counter, back = sh.z1;
     still.panel(M.glass, C.white, (c.x0 + c.x1) / 2 - 0.4, c.z0 - 0.02, [0, -1], 1.6, y + c.h, y + c.h + 0.35);
-    still.panel(signs.material, C.white, -9.8, back - 0.02, [0, -1], 2.6, y + 1.7, y + 2.6, signs.rect('cafeMenu'));
+    still.panel(signs.material, C.white, -9.8, back - 0.02, [0, -1], 2.6, y + 1.7, y + 2.6, signs.rect('teaMenu'));
     bay(ctx, 'candy', 4, -6.8, back - 0.3, [0, -1], 2.4, 0.2, 2.2, 0.3, C.walnut);
     still.panel(signs.print, C.white, sh.x1 - 0.17, 27.0, [-1, 0], 2.4, y + 0.3, y + 1.1, signs.rect('pastry'));
     for (const [x, z] of [[-5.0, 29.8], [-3.0, 29.8], [-10.4, 24.9]]) cafeTable(ctx, x, y, z, C.oak, 2, 0.55);
     cast.cylinder(M.satin, C.charcoal, sh.x1 - 0.6, y, 24.0, 0.25, 0.5, 10);
     cast.sphere(M.matte, C.leaf, sh.x1 - 0.6, y + 0.9, 24.0, 0.4, 1.2, 8);
   },
-  /** The bag shop: totes on wall shelves, pictures of the collection, the display table. */
+  /** The bag shop: handbags on the back wall's pegs, totes on wall shelves, the display table. */
   bags(ctx, sh) {
-    const { M, signs, cast, still, site, y } = ctx;
+    const { M, cast, still, site, y } = ctx;
     const back = sh.z1, colors = [C.navy, C.pink, C.cream, C.teal, C.red, C.oak];
-    for (let k = 0; k < 4; k++) still.panel(signs.material, C.white, 24.5 + k * 3.2, back - 0.02, [0, -1], 2.6, y + 0.4, y + 2.8, signs.rect('roomRacks'));
+    // A slatted wall of pegs, three rows of bags hung on them (body, flap, handle).
+    for (let k = 0; k < 4; k++) {
+      const x0 = 23.4 + k * 3.2;
+      still.box(M.satin, C.oak, x0, y + 0.3, back - 0.04, x0 + 2.6, y + 2.8, back - 0.01);
+      for (let row = 0; row < 3; row++) {
+        const py = y + 0.95 + row * 0.75;
+        for (let i = 0; i < 4; i++) {
+          const px = x0 + 0.38 + i * 0.62, c = colors[(k * 5 + row * 3 + i) % colors.length], bw = 0.36 + (i % 2) * 0.06;
+          cast.box(M.metal, C.steel, px - 0.01, py - 0.01, back - 0.2, px + 0.01, py + 0.01, back - 0.04);
+          cast.box(M.satin, c, px - bw / 2, py - 0.5, back - 0.17, px + bw / 2, py - 0.18, back - 0.07);
+          cast.box(M.satin, c === C.cream ? C.oak : C.cream, px - bw / 2 + 0.03, py - 0.3, back - 0.175, px + bw / 2 - 0.03, py - 0.18, back - 0.17);
+          still.rod(M.metal, C.dark, [px - bw / 3, py - 0.18, back - 0.12], [px, py, back - 0.12], 0.008, 4);
+          still.rod(M.metal, C.dark, [px, py, back - 0.12], [px + bw / 3, py - 0.18, back - 0.12], 0.008, 4);
+        }
+      }
+    }
     // Wall shelves of totes along the west wall.
     for (let k = 0; k < 3; k++) {
       const z = 24.6 + k * 1.4;

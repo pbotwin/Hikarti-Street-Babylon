@@ -73,9 +73,13 @@ export function buildBuilding(site, mats, signs) {
   paint(SERVICE.x1, BOUTIQUE.z0, SERVICE.x1, BOUTIQUE.z1, [1, 0]);
   paint(SERVICE.x0, SERVICE.z0, SERVICE.x1, SERVICE.z0, [0, -1], C.warm, SOFFIT);
   // Restroom doors and their sign on the service front.
+  // Each door in a steel frame (a bare slab on the wall read as painted on), a kick plate and a push plate.
+  const z = SERVICE.z0;
   for (const x of [2.6, 4.6]) {
-    still.box(M.satin, C.walnut, x - 0.5, 0, SERVICE.z0 - 0.04, x + 0.5, 2.2, SERVICE.z0);
-    still.box(M.metal, C.steel, x - 0.36, 1.0, SERVICE.z0 - 0.07, x - 0.32, 1.25, SERVICE.z0 - 0.04);
+    still.box(M.metal, C.steel, x - 0.56, 0, z - 0.05, x + 0.56, 2.26, z);
+    still.box(M.satin, C.walnut, x - 0.48, 0, z - 0.07, x + 0.48, 2.18, z - 0.05);
+    still.box(M.metal, C.steel, x - 0.46, 0.02, z - 0.075, x + 0.46, 0.24, z - 0.07);
+    still.box(M.metal, C.steel, x - 0.38, 1.0, z - 0.08, x - 0.3, 1.35, z - 0.07);
   }
   still.panel(signs.material, C.white, 3.6, SERVICE.z0 - 0.02, [0, -1], 3.2, 2.5, 3.3, signs.rect('restrooms'));
   // The boutique's back wall (its mirror wall is MallBoutique's).
@@ -155,9 +159,11 @@ function front(site, cast, b, M, signs) {
     b.box(M.metal, C.frame, cx - 1.05, SHOWCASE.y0 - 0.06, -WALL - 0.12, cx + 1.05, SHOWCASE.y1 + 0.06, -WALL);
     b.panel(signs.material, C.white, cx, -WALL - 0.135, [0, -1], 1.96, SHOWCASE.y0, SHOWCASE.y1, signs.rect(POSTER[u.kind]));
   }
+  // Fins at the party walls, up to the parapet's band; under the anchors' names they stop below them (they cut through the boards).
   for (const x of [...new Set(UNITS.flatMap((u) => [u.x0, u.x1]))]) {
     if (Math.abs(Math.abs(x) - 40) < 0.01 || courts.some(([a, c]) => Math.abs(x - a) < 0.1 || Math.abs(x - c) < 0.1)) continue;
-    b.box(M.cladding, C.white, x - 0.25, 0, -WALL - 0.35, x + 0.25, ROOF - 0.75, -WALL);
+    const top = ANCHOR_NAMES.some(([cx]) => Math.abs(x - cx) < 4.6) ? 9.75 : ROOF - 0.75;
+    b.box(M.cladding, C.white, x - 0.25, 0, -WALL - 0.35, x + 0.25, top, -WALL);
   }
   // The café's window: glass in a dark frame from the plinth up, an awning over it.
   const cw = w1 - w0;
@@ -167,7 +173,7 @@ function front(site, cast, b, M, signs) {
   b.box(M.metal, C.frame, w0, 3.72, -0.2, w1, 3.8, -0.1);
   b.turned(M.fabric, C.pink, (w0 + w1) / 2, 3.55, -0.75, cw + 0.2, 0.06, 1.3, 0, -0.35);
   // The anchors' names high on the front, over their halves of the mall.
-  for (const [x, id] of [[-25, 'market'], [25, 'style']]) {
+  for (const [x, id] of ANCHOR_NAMES) {
     b.box(M.matte, C.white, x - 4.5, 9.85, -WALL - 0.2, x + 4.5, 11.55, -WALL);
     b.panel(signs.material, C.white, x, -WALL - 0.215, [0, -1], 8.8, 9.9, 11.5, signs.rect(id));
   }
@@ -192,18 +198,28 @@ function front(site, cast, b, M, signs) {
     }
     b.panel(M.glass, C.white, e.x, 0, [0, -1], d1 - d0, DOOR_H + 0.18, SOFFIT);
     b.box(M.gloss, C.tinted, c0, SOFFIT, -0.06, c1, UPPER_CEILING, 0);
-    for (let k = 0; k <= 4; k++) { const x = c0 + COURT_W * k / 4; b.box(M.metal, C.frame, x - 0.05, 0, -0.12, x + 0.05, UPPER_CEILING, 0.06); }
-    for (const y of [0, 2.75, SOFFIT - 0.05, 8]) b.box(M.metal, C.frame, c0, y, -0.12, c1, y + 0.1, 0.06);
-    b.box(M.metal, C.frame, d0 - 0.08, DOOR_H, -0.12, d1 + 0.08, DOOR_H + 0.18, 0.12);
-    // Door track housing (the leaves part into the walls' pockets) and the sensor over it.
-    b.box(M.metal, C.dark, c0, DOOR_H + 0.18, -0.28, c1, DOOR_H + 0.4, -0.12);
-    b.box(M.gloss, C.black, e.x - 0.14, DOOR_H + 0.1, -0.32, e.x + 0.14, DOOR_H + 0.18, -0.22);
+    // Frame: posts at the portal's sides and the door jambs, a mullion over
+    // the doors only (one used to run down the middle of the doorway, through
+    // the leaves), sills under the side lights alone (across the doorway the
+    // sill was a 10 cm kerb), the transom the leaves' track hangs from.
+    for (const x of [c0, d0, d1, c1]) b.box(M.metal, C.frame, x - 0.05, 0, -0.12, x + 0.05, UPPER_CEILING, 0.06);
+    b.box(M.metal, C.frame, e.x - 0.05, DOOR_H + 0.18, -0.12, e.x + 0.05, UPPER_CEILING, 0.06);
+    for (const [x0, x1] of [[c0, d0], [d1, c1]]) b.box(M.metal, C.frame, x0, 0, -0.12, x1, 0.1, 0.06);
+    for (const y of [SOFFIT - 0.05, 8]) b.box(M.metal, C.frame, c0, y, -0.12, c1, y + 0.1, 0.06);
+    b.box(M.metal, C.frame, c0, DOOR_H, -0.12, c1, DOOR_H + 0.18, 0.12);
+    // Door track housing over the leaves' whole run (they part behind the side lights), the sensor under it, the floor track.
+    b.box(M.metal, C.frame, c0, DOOR_H + 0.18, -0.3, c1, DOOR_H + 0.4, -0.12);
+    b.box(M.gloss, C.black, e.x - 0.14, DOOR_H + 0.12, -0.36, e.x + 0.14, DOOR_H + 0.18, -0.24);
+    b.box(M.metal, C.steel, c0, 0.02, -0.3, c1, 0.028, -0.1);
     // Mats at the door, inside and out (a centimetre thick: flat on the floor they fought it from afar).
     b.box(M.matte, C.charcoal, d0 - 0.2, 0.02, -1.6, d1 + 0.2, 0.032, -0.3);
     b.box(M.matte, C.charcoal, d0 - 0.2, 0.01, 0.15, d1 + 0.2, 0.022, 1.8);
     canopy(site, cast, b, M, signs, e);
   });
 }
+
+/** The anchors' names high on the front: [x, sign]. */
+const ANCHOR_NAMES = [[-25, 'market'], [25, 'style']];
 
 /** Lightbox posters on the shop row's wall, one per shop kind. */
 const POSTER = { books: 'shelfBooks', denki: 'screens', drug: 'shelfCosmetics', hyaku: 'shelfHyaku', toys: 'shelfToys', shoes: 'shelfShoes', ramen: 'ramenMenu', games: 'purikura' };

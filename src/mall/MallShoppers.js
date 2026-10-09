@@ -55,12 +55,14 @@ export class MallShoppers {
     this.gear = new ShopperGear(this.ctx, ids.length);
     this.lines = (layout.checkouts || []).slice(0, STAFFED).map((c) => new CheckoutLine(c, this.gear));
     this.till = layout.fashion?.till ? new CheckoutLine(layout.fashion.till, this.gear) : null;
-    this.cars = parkedCars(layout);
+    this.cars = parkedCars(layout, this.ctx.world.nav);
     this.group = new TransformNode('mall shoppers', scene);
     this.group.freezeWorldMatrix();
     this.mind = new ShopperMind({ layout, nav: this.ctx.world.nav, escalators: this.ctx.world.escalators, collision, gear: this.gear, lines: this.lines, till: this.till, player: this._player, shoppers: this.shoppers,
       // The clothing store's fitting rooms (shared with her: `inUse` while someone is in one).
-      rooms: () => this.ctx.fashion?.rooms || [] });
+      rooms: () => this.ctx.fashion?.rooms || [],
+      // The corrals' carts (MallShopping: taken out of the nest and nested back, as hers).
+      corrals: () => this.ctx.corrals });
     for (const id of ids) {
       const item = npcs.lend(id);
       if (item) this.shoppers.push(this._shopper(item, this.shoppers.length));
@@ -330,18 +332,27 @@ export class MallShoppers {
 
 /**
  * Shoppers' cars: the lot's taken bays (a parked car stands there) except
- * hers and the cart return. The door is on the car's right, facing in.
+ * hers and the cart return. The door is on the car's right, facing in; on
+ * its left when the walk graph can't be reached from the right one in a
+ * straight line (boxed in by the cars beside it: a shopper heading for it
+ * walked into the far side of the car for good); a car with neither is
+ * left out.
  */
-function parkedCars(layout) {
+function parkedCars(layout, nav) {
   const corrals = layout.cartCorrals || [];
   const bays = (layout.lot?.bays || []).filter((b) => b.free === false
     && Math.hypot(b.x - layout.car.x, b.z - layout.car.z) > 1.5
     && !corrals.some((c) => Math.hypot(b.x - c.x, b.z - c.z) < 2));
-  const list = bays.length ? bays : [layout.spawn];
-  return list.map((b) => {
-    const rx = Math.cos(b.yaw || 0), rz = -Math.sin(b.yaw || 0);
-    return { x: b.x, z: b.z, door: { x: b.x + rx * 1.25, z: b.z + rz * 1.25, yaw: Math.atan2(-rx, -rz) } };
-  });
+  const cars = [];
+  for (const b of bays) {
+    for (const side of [1, -1]) {
+      const rx = Math.cos(b.yaw || 0) * side, rz = -Math.sin(b.yaw || 0) * side, x = b.x + rx * 1.25, z = b.z + rz * 1.25;
+      if (nav.nearest(x, z, layout.building.floorY, true) < 0) continue;
+      cars.push({ x: b.x, z: b.z, door: { x, z, yaw: Math.atan2(-rx, -rz) } });
+      break;
+    }
+  }
+  return cars.length ? cars : [{ x: layout.spawn.x, z: layout.spawn.z, door: { ...layout.spawn } }];
 }
 
 function shuffle(list) {

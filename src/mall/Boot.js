@@ -17,6 +17,10 @@ const OPEN_Z = -2.05;            // car space: where she stands to open / load (
 const BACK_Z = -3.25;            // clear of the lid's swing (closing)
 const RIM = 0.99;                // a cart basket's top rim, which a bag is lifted over
 const SLOTS = [[0.34, -1.38], [0, -1.38], [-0.34, -1.38], [0.34, -1.12], [0, -1.12], [-0.34, -1.12]];   // bags on the boot floor
+// Bags stand in layers on the ones below (a bag is 0.34 m tall; the tailgate
+// opens up to the roof): with six places, a trip's seventh bag was taken
+// into her hand and stayed there, and the rest stayed in the cart.
+const LAYER = 0.36, CAPACITY = SLOTS.length * 3;
 const _a = [0, 0, 0], _w = new Vector3(), _h = new Vector3(), _c = new Vector3(), _o = new Vector3(), _ax = new Vector3(), _ay = new Vector3(), _az = new Vector3();
 const NONE = [];
 
@@ -109,10 +113,10 @@ export class Boot {
         ? shop.hint('Close the boot first', 'The car won’t start with its boot open', d) : null;
     }
     if (this.k < 0.5) return shop._show(bags ? P.stow : P.open, d);
-    if (bags && this.loaded.length < SLOTS.length) return shop._show(P.stow, d);
+    if (bags && this.loaded.length < CAPACITY) return shop._show(P.stow, d);
     const cart = shop.mine;
     const cartNear = cart && Math.hypot(cart.x - _w.x, cart.z - _w.z) < 4;
-    if (cartNear && this._bagCount() && this.loaded.length < SLOTS.length) return shop._show(P.load, d);
+    if (cartNear && this._bagCount() && this.loaded.length < CAPACITY) return shop._show(P.load, d);
     return shop._show(P.close, d);
   }
 
@@ -188,7 +192,7 @@ export class Boot {
     const bags = this.shop.mine.contents.filter((e) => e.carrier);
     const next = () => {
       const e = bags.shift();
-      if (!e || this.loaded.length >= SLOTS.length) { this._done(); return; }
+      if (!e || this.loaded.length >= CAPACITY) { this._done(); return; }
       this._loadOne(e, next);
     };
     next();
@@ -215,23 +219,30 @@ export class Boot {
       ...shop._toSide(),
       // Round the cart to the back of the car.
       shop._go(() => {
-        this._world(SLOTS[this.loaded.length][0] * 0.6, 0, OPEN_Z, _w);
+        this._world(this._slot()[0] * 0.6, 0, OPEN_Z, _w);
         return { x: _w.x, z: _w.z, yaw: this.car.yaw, via: shop._round(cart, _w.x, _w.z) };
       }),
-    ], () => this._setIn(SLOTS[this.loaded.length], then));
+    ], () => this._setIn(this._slot(), then));
   }
 
   /** The bags she carries in her hand (from the clothing store) straight into the boot (opened first). */
   stowCarried() {
     const shop = this.shop;
     const next = () => {
-      if (!shop.nextCarried() || this.loaded.length >= SLOTS.length) { this._done(); return; }
-      this._setIn(SLOTS[this.loaded.length], next);
+      // (Full: the rest stay in her hand, not one more taken into it.)
+      if (this.loaded.length >= CAPACITY || !shop.nextCarried()) { this._done(); return; }
+      this._setIn(this._slot(), next);
     };
     // (Opening it, she steps back from the rising lid: then up to the sill again.)
     const toSill = () => this._goBehind(OPEN_Z, 0, next);
     if (this.k < 0.5) this.open(toSill);
     else toSill();
+  }
+
+  /** The next bag's place in the boot: [x, z, height above its floor] (car space). */
+  _slot() {
+    const i = this.loaded.length, [x, z] = SLOTS[i % SLOTS.length];
+    return [x, z, Math.floor(i / SLOTS.length) * LAYER];
   }
 
   /**
@@ -242,7 +253,7 @@ export class Boot {
   _setIn(slot, then) {
     const shop = this.shop, her = shop.her, car = this.car;
     her.freeze(true);
-    const at = () => this._world(slot[0], car.boot.floor.y, slot[1], new Vector3());
+    const at = () => this._world(slot[0], car.boot.floor.y + slot[2], slot[1], new Vector3());
     shop.tl.play([
       shop._go(() => ({ x: her.x, z: her.z, yaw: car.yaw })),
       ...shop._move(true, () => { const p = at(); p.y += 0.32; return p; }, 0.2, 0.2, 0.4),

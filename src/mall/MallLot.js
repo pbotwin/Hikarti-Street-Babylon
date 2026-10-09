@@ -1,6 +1,6 @@
 import { LoadAssetContainerAsync, PBRMaterial, Quaternion } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
-import { C, planter } from './MallKit.js';
+import { C, planter, shrub } from './MallKit.js';
 import {
   SITE, BUILDING, ASPHALT, SIDEWALK, WALKWAY, END_ISLAND, ISLAND_SPANS, EXIT_ROAD, DRIVES, ROWS, BAY, KERB_H, LANE_X,
   CART_RETURN, ACCESSIBLE_BAYS, ENTRANCES,
@@ -44,7 +44,7 @@ export async function buildLot(site, mats, signs, vehicles, indoorTrees = []) {
       const x0 = s > 0 ? END_ISLAND.x0 : -END_ISLAND.x1, x1 = s > 0 ? END_ISLAND.x1 : -END_ISLAND.x0;
       cast.box(M.matte, C.concrete, x0, 0, z0, x1, KERB_H, z1);
       still.flat(M.grass, C.white, x0 + 0.15, z0 + 0.15, x1 - 0.15, z1 - 0.15, KERB_H + 0.008);
-      for (const z of [z0 + 1.6, z1 - 1.6]) cast.sphere(M.matte, C.leaf, (x0 + x1) / 2, KERB_H + 0.35, z, 0.7, 0.6, 8);
+      for (const z of [z0 + 1.6, z1 - 1.6]) shrub(cast, M, (x0 + x1) / 2, KERB_H, z, 0.65, C.yellow);
       site.collide(x0, z0, x1, z1, 0, KERB_H, { camera: false });
     }
   }
@@ -86,13 +86,15 @@ export async function buildLot(site, mats, signs, vehicles, indoorTrees = []) {
   trees.push(...planters);
   for (let z = 6; z < SITE.z1 - 4; z += 9) for (const s of [-1, 1]) trees.push([s * 49, z]);
   for (let x = SITE.x0 + 6; x < EXIT_ROAD.x0 - 3; x += 10) trees.push([x, ASPHALT.z0 - 4.5]);
-  trees.push(...indoorTrees);
-  const forest = await treeModel(site.scene, trees, site.root);
+  const forest = await treeModel(site.scene, [trees, indoorTrees], site.root);
   const cars = new MallCars(site, vehicles);
+  const all = forest.sets.flat();
   return {
     cars,
-    meshes: [...forest.meshes, ...cars.meshes],
-    casters: [...forest.meshes, ...cars.casters],
+    meshes: [...all, ...cars.meshes],
+    casters: [...all, ...cars.casters],
+    // The trees outside: one set, so it can be switched off with the lot (MallVisibility); the indoor ones stay on.
+    outdoorTrees: forest.sets[0],
     dispose: () => forest.container.dispose(),
   };
 }
@@ -161,7 +163,9 @@ function hedge(site, b, M) {
     [S.x0, S.z0, EXIT_ROAD.x0 - 0.6, S.z0 + t], [EXIT_ROAD.x1 + 0.6, S.z0, S.x1, S.z0 + t],
   ];
   for (const [x0, z0, x1, z1] of runs) {
-    b.box(M.matte, C.leaf, x0, 0, z0, x1, h, z1);
+    // Clipped: a darker body, a lighter top a little set in.
+    b.box(M.matte, C.leaf, x0, 0, z0, x1, h - 0.12, z1);
+    b.box(M.matte, C.leafLight, x0 + 0.06, h - 0.12, z0 + 0.06, x1 - 0.06, h, z1 - 0.06);
     site.collide(x0, z0, x1, z1, 0, h, { camera: false });
   }
   site.collide(EXIT_ROAD.x0 - 0.6, S.z0 - 0.4, EXIT_ROAD.x1 + 0.6, S.z0, 0, 2.5, { camera: false });
@@ -203,19 +207,16 @@ function pylon(site, cast, still, M, signs) {
 /**
  * Trees (the city's summer tree, loaded here): bark simplified, leaves as
  * alpha-tested cards lit as soft masses like the city's foliage; one thin
- * instance per tree.
+ * instance per tree. `groups` are lists of spots, each its own set of
+ * meshes (clones sharing geometry and materials): the outdoor trees and the
+ * indoor ones were one set, its bounds the whole site, so all 122k
+ * triangles drew (and cast) in every view inside the building.
  */
-async function treeModel(scene, spots, root) {
+async function treeModel(scene, groups, root) {
   const [container] = await Promise.all([LoadAssetContainerAsync('./models/props/tree_summer.glb', scene), simplifierReady]);
   container.addAllToScene();
   const rnd = mulberry32(77);
-  const matrices = new Float32Array(spots.length * 16);
-  spots.forEach(([x, z, scale = 1], i) => {
-    const yaw = rnd() * Math.PI * 2, s = (0.8 + rnd() * 0.35) * scale;
-    _q.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
-    writeTRS(matrices, i * 16, x, 0, z, _q, s, s, s);
-  });
-  const meshes = [];
+  const base = [];
   for (const m of container.meshes) {
     if (!m.getTotalVertices()) continue;
     m.setParent(null);
@@ -235,13 +236,23 @@ async function treeModel(scene, spots, root) {
       const index = simplifyGeometry(m.geometry, { error: 0.01 });
       if (index) m.setIndices(index);
     }
-    m.thinInstanceSetBuffer('matrix', matrices, 16, true);
-    m.thinInstanceRefreshBoundingInfo(false);
-    m.computeWorldMatrix(true);
-    m.freezeWorldMatrix();
-    meshes.push(m);
+    base.push(m);
   }
+  const sets = groups.map((spots, g) => base.map((m) => {
+    const mesh = g ? m.clone(`${m.name}:${g}`, root) : m;
+    const matrices = new Float32Array(spots.length * 16);
+    spots.forEach(([x, z, scale = 1], i) => {
+      const yaw = rnd() * Math.PI * 2, s = (0.8 + rnd() * 0.35) * scale;
+      _q.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
+      writeTRS(matrices, i * 16, x, 0, z, _q, s, s, s);
+    });
+    mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
+    mesh.thinInstanceRefreshBoundingInfo(false);
+    mesh.computeWorldMatrix(true);
+    mesh.freezeWorldMatrix();
+    return mesh;
+  }));
   for (const n of container.transformNodes) n.dispose();
-  for (const m of container.meshes) if (!meshes.includes(m)) m.dispose();
-  return { meshes, container };
+  for (const m of container.meshes) if (!base.includes(m)) m.dispose();
+  return { sets, container };
 }

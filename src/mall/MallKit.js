@@ -18,7 +18,7 @@ const CORNERS = [[0, 0], [1, 0], [1, 1], [0, 1]];
 export const C = Object.fromEntries(Object.entries({
   white: '#ffffff', snow: '#e6e4df', paint: '#dfdbd2', warm: '#d9d0c2', paintLine: '#e8e6df', navy: '#26324a', green: '#2f8f5b', pink: '#e27c9a', blush: '#f6dbe3',
   frame: '#3a3d42', steel: '#b9bec4', dark: '#24272c', black: '#141518', wood: '#b98552', oak: '#d6b58a', walnut: '#6b4a32',
-  leaf: '#4f8a3c', soil: '#4a3a2c', yellow: '#f2c230', blue: '#2f6fb3', red: '#d2463c', grey: '#8d9096', concrete: '#b9b4ab',
+  leaf: '#4f8a3c', leafLight: '#72ad4e', soil: '#4a3a2c', yellow: '#f2c230', blue: '#2f6fb3', red: '#d2463c', grey: '#8d9096', concrete: '#b9b4ab',
   rubber: '#2a2b2e', shelf: '#dddad3', light: '#fff6e8', cold: '#e9f6ff',
   orange: '#e8892f', purple: '#5b3b8a', teal: '#2a9d8f', cream: '#f4ead8', stone: '#c9bfb1', charcoal: '#3b3f46',
   gold: '#c9a227', water: '#4f9fc4', maroon: '#7a2e2e', tinted: '#2c3a4a', sky: '#a9cde6',
@@ -80,6 +80,30 @@ export class MallMaterials {
     // photo (one 128 px cube from the market's middle) only smeared across
     // them, blurred and out of place.
     for (const m of [this.hallFloor, this.marketFloor, this.woodFloor]) m.environmentIntensity = 0.9;
+
+    // The fountain's water, drawn as anime draws it: flat bright blues with
+    // white ripple rings and streaks, unlit (a lit, glossy disc read as grey
+    // plastic), moving by scrolling the textures (no geometry changes). Their
+    // uv run round the water (u) and along its flow (v): outward across the
+    // pools, up and down the jets and sheets (Fountain).
+    this.water = this._painted('mall:water', paintRipples, 1, { roughness: 1, width: 256, height: 256, ownUv: true });
+    this.water.unlit = true;
+    this.water.backFaceCulling = false;
+    this.spray = this._painted('mall:spray', paintSpray, 1, { roughness: 1, width: 128, height: 256, ownUv: true });
+    this.spray.unlit = true;
+    this.spray.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    this.spray.albedoTexture.hasAlpha = true;
+    this.spray.useAlphaFromAlbedoTexture = true;
+    this.spray.backFaceCulling = false;
+    // No depth: the ink pass outlined every sheet's edge from it (glass
+    // cylinders), and the sheets hid the water behind them.
+    this.spray.disableDepthWrite = true;
+    const ripples = this.water.albedoTexture, flow = this.spray.albedoTexture;
+    this._flow = scene.onBeforeRenderObservable.add(() => {
+      const t = performance.now() / 1000;
+      ripples.vOffset = -(t * 0.18 % 1);
+      flow.vOffset = t * 1.6 % 1;
+    });
   }
 
   _pbr(name, { roughness = 0.6, metallic = 0, color = null, unlit = false }) {
@@ -93,16 +117,16 @@ export class MallMaterials {
   }
 
   /** A material on a painted texture; finishes painted alike at the same span share one (planks: floor and furniture). */
-  _painted(name, paint, span, { roughness, aniso = 4, height = 512, ownUv = false }) {
+  _painted(name, paint, span, { roughness, aniso = 4, width = 512, height = 512, ownUv = false }) {
     const key = `${paint.name}:${span}`;
     let tex = this._shared.get(key);
     if (!tex) {
-      tex = new DynamicTexture(name, { width: 512, height }, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
-      paint(tex.getContext(), 512, height);
+      tex = new DynamicTexture(name, { width, height }, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
+      paint(tex.getContext(), width, height);
       tex.update();
       tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
       tex.uScale = 1 / span;
-      tex.vScale = ownUv ? 1 : 512 / height / span;
+      tex.vScale = ownUv ? 1 : width / height / span;
       tex.anisotropicFilteringLevel = aniso;
       this._shared.set(key, tex);
       this.textures.push(tex);
@@ -113,6 +137,7 @@ export class MallMaterials {
   }
 
   dispose() {
+    this.scene.onBeforeRenderObservable.remove(this._flow);
     for (const m of this.all) m.dispose();
     for (const t of this.textures) t.dispose();
     this.all.length = this.textures.length = 0;
@@ -221,11 +246,11 @@ export class Batch {
     this.face(mat, color, [cx - rx * w / 2, y0, cz - rz * w / 2], [rx * w, 0, rz * w], [0, y1 - y0, 0], rect);
   }
 
-  /** Any vertex data (Babylon's builders), placed by `matrix`. */
+  /** Any vertex data (Babylon's builders), placed by `matrix`; its own vertex colours (rgba), if any, tint `color`. */
   shape(mat, color, vd, matrix) {
     const g = this._g(mat), b = g.pos.length / 3;
     const p = new Vector3(), n = new Vector3();
-    const P = vd.positions, N = vd.normals, U = vd.uvs;
+    const P = vd.positions, N = vd.normals, U = vd.uvs, K = vd.colors;
     for (let i = 0; i < P.length / 3; i++) {
       Vector3.TransformCoordinatesFromFloatsToRef(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], matrix, p);
       Vector3.TransformNormalFromFloatsToRef(N[i * 3], N[i * 3 + 1], N[i * 3 + 2], matrix, n);
@@ -233,7 +258,8 @@ export class Batch {
       g.pos.push(p.x, p.y, p.z);
       g.nrm.push(n.x, n.y, n.z);
       g.uv.push(U ? U[i * 2] : 0, U ? U[i * 2 + 1] : 0);
-      g.col.push(color.r, color.g, color.b, 1);
+      if (K) g.col.push(color.r * K[i * 4], color.g * K[i * 4 + 1], color.b * K[i * 4 + 2], 1);
+      else g.col.push(color.r, color.g, color.b, 1);
     }
     for (const i of vd.indices) g.idx.push(b + i);
   }
@@ -317,16 +343,36 @@ export class SiteBuilder {
     this.boxes.push(this.collision.addBox(r.x0, y0, r.z0, r.x1, y1, r.z1, opts));
   }
 
-  /** Merge every zone: { meshes, casters }. */
+  /** Merge every zone: { meshes, casters, zones: { name: its meshes } } (a zone can be switched off as a whole: MallVisibility). */
   build() {
-    const meshes = [], casters = [];
-    for (const { cast, still } of this.zones.values()) {
+    const meshes = [], casters = [], zones = {};
+    for (const [name, { cast, still }] of this.zones) {
       const c = cast.build(this.root);
-      meshes.push(...c, ...still.build(this.root));
+      zones[name] = [...c, ...still.build(this.root)];
+      meshes.push(...zones[name]);
       casters.push(...c);
     }
     this.zones.clear();
-    return { meshes, casters };
+    return { meshes, casters, zones };
+  }
+}
+
+/**
+ * A leafy shrub of radius r standing at y: a crown of overlapping low-poly
+ * balls in two greens (one big ball read as a green blob), and flowers
+ * dotted over it if `flower` is given (little cubes: a ball each cost as
+ * much as the leaves).
+ */
+export function shrub(b, M, x, y, z, r, flower = null) {
+  b.sphere(M.matte, C.leaf, x, y + r * 0.6, z, r * 0.62, 0.85, 4);
+  for (let i = 0; i < 5; i++) {
+    const a = i * 1.2566 + r * 7, d = r * 0.48;
+    b.sphere(M.matte, i % 2 ? C.leafLight : C.leaf, x + Math.cos(a) * d, y + r * (0.42 + (i % 3) * 0.12), z + Math.sin(a) * d, r * 0.42, 0.85, 3);
+  }
+  if (!flower) return;
+  for (let i = 0; i < 6; i++) {
+    const a = i * 1.047 + 0.4, d = r * (0.3 + (i % 2) * 0.3);
+    b.cube(M.matte, flower, x + Math.cos(a) * d, y + r * (1.02 - (i % 2) * 0.2), z + Math.sin(a) * d, r * 0.16, r * 0.12, r * 0.16);
   }
 }
 
@@ -334,8 +380,7 @@ export class SiteBuilder {
 export function planter(b, M, x, z, r, h = 0.6) {
   b.box(M.satin, C.frame, x - r, 0, z - r, x + r, h, z + r);
   b.box(M.matte, C.soil, x - r + 0.06, h - 0.04, z - r + 0.06, x + r - 0.06, h - 0.02, z + r - 0.06);
-  b.sphere(M.matte, C.leaf, x, h + r * 0.55, z, r * 0.85, 0.8, 10);
-  b.sphere(M.matte, C.leaf, x + r * 0.3, h + r * 0.95, z - r * 0.2, r * 0.55, 0.9, 8);
+  shrub(b, M, x, h - 0.06, z, r * 0.95);
 }
 
 // ---------------------------------------------------------------- painters
@@ -478,4 +523,38 @@ function paintPriceStrip(g, w, h) {
   g.fillStyle = '#f7f5ef'; g.fillRect(0, 0, w, h);
   g.fillStyle = '#f2c94a'; g.fillRect(0, 0, w, h * 0.22);
   g.fillStyle = '#c9c4b8'; g.fillRect(0, h * 0.22, w, 2); g.fillRect(0, h - 3, w, 3);
+}
+
+/**
+ * The pool's water: a clear anime blue, ripple rings across it (v is the
+ * radius: the rings run outward as it scrolls), broken round the pool (u)
+ * so they glint rather than draw circles, and a few sparkles.
+ */
+function paintRipples(g, w, h) {
+  g.fillStyle = '#5cc3df'; g.fillRect(0, 0, w, h);
+  const r = rng(53);
+  for (const [y, width, color, alpha] of [[0.18, 0.14, '#8fdcf0', 0.9], [0.62, 0.1, '#8fdcf0', 0.8], [0.25, 0.035, '#ffffff', 0.95], [0.67, 0.03, '#ffffff', 0.85]]) {
+    g.globalAlpha = alpha; g.fillStyle = color;
+    for (let x = r() * 20; x < w; x += 26 + r() * 30) {
+      const len = 14 + r() * 40;
+      wrapped(w, h, (dx, dy) => g.fillRect(x + dx, y * h + dy, len, width * h));
+    }
+  }
+  g.globalAlpha = 1;
+  g.fillStyle = '#ffffff';
+  for (let i = 0; i < 26; i++) { const x = r() * w, y = r() * h; wrapped(w, h, (dx, dy) => { g.beginPath(); g.ellipse(x + dx, y + dy, 5, 2.5, 0, 0, Math.PI * 2); g.fill(); }); }
+}
+
+/**
+ * Falling and leaping water: streaks along the flow (v) in white and pale
+ * cyan over a translucent ground, gaps between them; it tiles both ways.
+ */
+function paintSpray(g, w, h) {
+  g.fillStyle = 'rgba(190,235,248,0.3)'; g.fillRect(0, 0, w, h);
+  const r = rng(59);
+  for (let i = 0; i < 46; i++) {
+    const x = r() * w, y = r() * h, len = 24 + r() * 80, sw = 1.5 + r() * 3.5;
+    g.fillStyle = r() < 0.6 ? 'rgba(255,255,255,0.95)' : 'rgba(205,243,252,0.85)';
+    wrapped(w, h, (dx, dy) => { g.beginPath(); g.ellipse(x + dx, y + dy, sw, len / 2, 0, 0, Math.PI * 2); g.fill(); });
+  }
 }

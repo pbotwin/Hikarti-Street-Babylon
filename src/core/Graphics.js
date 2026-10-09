@@ -1,7 +1,7 @@
 import {
   Vector3, Color3, Color4, DirectionalLight, HemisphericLight, ShadowGenerator,
   DefaultRenderingPipeline, ReflectionProbe, ImageProcessingConfiguration, ColorCurves,
-  Constants, RenderTargetTexture,
+  Constants, RenderTargetTexture, Frustum, Plane, Matrix,
 } from '@babylonjs/core';
 import { HDRFiltering } from '@babylonjs/core/Materials/Textures/Filtering/hdrFiltering.js';
 import { Sky } from '../world/Sky.js';
@@ -24,6 +24,8 @@ import { ToonPlugin } from '../player/Vrm.js';
 const SHADOW_EXTENT = 22;
 const SHADOW_BACK = 70;
 const SHADOW_NEAR = 1, SHADOW_FAR = 140;    // the shadow camera's depth range (m from the light)
+// A shadow is followed down to this far below her (m) when deciding whether it can reach the view.
+const SHADOW_DROP = 6;
 
 export const PRESETS = {
   // dpr / pixels: the original's render resolution, the device ratio capped
@@ -133,6 +135,10 @@ export class Graphics {
     this._basis = { fwd: new Vector3(), right: new Vector3(), up: new Vector3() };
     this._shadowCenter = new Vector3();
     this._shadowList = [];
+    // The camera's view this frame (planes pointing inward), for the
+    // casters' culling and room visibility (mall/MallVisibility).
+    this.viewPlanes = [0, 1, 2, 3, 4, 5].map(() => new Plane(0, 0, 0, 0));
+    this._viewProj = new Matrix();
 
     // Quality governor hooks (AdaptivePerformance): render scale, the costly
     // screen effects, and how often the shadow maps are redrawn.
@@ -152,6 +158,9 @@ export class Graphics {
       // A new render scale is applied right before drawing: resizing the
       // drawing buffer between frames would show a cleared canvas (a flash).
       if (this._scaleDirty) this._applyScale();
+      // Babylon's own planes are the last frame's; the camera has moved since.
+      this.camera.getViewMatrix(true).multiplyToRef(this.camera.getProjectionMatrix(true), this._viewProj);
+      Frustum.GetPlanesToRef(this._viewProj, this.viewPlanes);
       // Shadows are redrawn on a timer (≤60 Hz), never every frame on a 120 Hz screen.
       const now = performance.now();
       if (this.shadows && now - this._shadowAt >= this.shadowInterval) {
@@ -240,10 +249,15 @@ export class Graphics {
 
   /**
    * Babylon draws every caster into the shadow map with no culling; like
-   * three's shadow camera, keep only those inside its box (the square and its depth).
+   * three's shadow camera, keep only those inside its box (the square and
+   * its depth), and of those only the ones whose shadow can fall in view:
+   * the caster swept along the light down to the ground below her. Inside
+   * the mall (light from above) that drops the residents and fixtures
+   * behind the camera or across the building: ~45% of the shadow draws.
    */
   _cullShadowCasters() {
     const { right, up, fwd } = this._basis, c = this._shadowCenter, list = this._shadowList;
+    const planes = this.viewPlanes, d = this.sunDir, floor = c.y - SHADOW_DROP, rise = Math.max(d.y, 0.05);
     list.length = 0;
     for (const m of this.casters) {
       if (m.isDisposed() || !m.isEnabled()) continue;
@@ -253,7 +267,15 @@ export class Graphics {
       // And within the camera's depth: with the sun low along the street,
       // everything down it overlapped the square and was drawn.
       const depth = SHADOW_BACK + dx * fwd.x + dy * fwd.y + dz * fwd.z;
-      if (depth + rs > SHADOW_NEAR && depth - rs < SHADOW_FAR) list.push(m);
+      if (depth + rs <= SHADOW_NEAR || depth - rs >= SHADOW_FAR) continue;
+      const len = Math.min(SHADOW_FAR, Math.max(0, p.y + rs - floor) / rise);
+      const ex = p.x - d.x * len, ey = p.y - d.y * len, ez = p.z - d.z * len;
+      let seen = true;
+      for (let i = 0; i < 6 && seen; i++) {
+        const n = planes[i].normal, w = planes[i].d;
+        seen = n.x * p.x + n.y * p.y + n.z * p.z + w > -rs || n.x * ex + n.y * ey + n.z * ez + w > -rs;
+      }
+      if (seen) list.push(m);
     }
   }
 
