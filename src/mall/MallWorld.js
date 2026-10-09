@@ -1,7 +1,7 @@
 import { Constants, ReflectionProbe, TransformNode } from '@babylonjs/core';
 import { HDRFiltering } from '@babylonjs/core/Materials/Textures/Filtering/hdrFiltering.js';
 import { CubeMapToSphericalPolynomialTools } from '@babylonjs/core/Misc/HighDynamicRange/cubemapToSphericalPolynomial.js';
-import { MallMaterials, SiteBuilder } from './MallKit.js';
+import { MallMaterials, SiteBuilder, lin } from './MallKit.js';
 import { MallSigns } from './MallSigns.js';
 import { MallDoors } from './MallDoors.js';
 import { buildBuilding } from './MallBuilding.js';
@@ -12,7 +12,7 @@ import { buildBoutique } from './MallBoutique.js';
 import { buildLot } from './MallLot.js';
 import { planLayout, siteTransform } from './MallPlan.js';
 import { MallNav } from './MallNav.js';
-import { IndoorLight } from '../core/IndoorLight.js';
+import { IndoorLight, SHOP_RIG } from '../core/IndoorLight.js';
 
 /**
  * Hikari Mall, the place (MALL.md "world"): builds the site from the plan
@@ -36,6 +36,23 @@ import { IndoorLight } from '../core/IndoorLight.js';
 const ORIGIN = { x: -650, z: -200 };
 // How far in from the entrances' doorways (m) the store light fades in, and back out.
 const IN_AT = 2.5, OUT_AT = 0.8;
+/**
+ * The store's light: the shops' rig dimmed (at full strength the white
+ * walls, floors and ceiling read washed out: mean screen brightness 161–167
+ * in the market and fashion store, against ~150 in the sunset lot), with
+ * the street's ink outlines and her outline kept: the mall is the same
+ * anime world as the street, not a photographed room. More of the fill
+ * comes from the hemisphere light, its ground side the cream of the lit
+ * floor: lit from below only by the shops' beige and the blurred store
+ * photo, the big ceilings read as a dull grey-brown lid over every view.
+ */
+const MALL_RIG = {
+  ...SHOP_RIG,
+  ground: lin('#f2e9db'),
+  lit: { sun: 1.35, hemi: 0.6, env: 0.6 }, unlit: { sun: 1.76, hemi: 1.2, env: 0 },
+  toonFill: 1.2,
+  ink: 1,
+};
 
 export class MallWorld {
   constructor(ctx) {
@@ -75,10 +92,7 @@ export class MallWorld {
     this.casters = [...casters, ...this.lot.casters];
     graphics.addCasters(this.casters);
 
-    // The shops' rig at 80%: at full strength the mall's white walls,
-    // floors and ceiling read washed out (mean screen brightness 161–167 in
-    // the market and fashion store, against ~150 in the sunset lot).
-    this.indoor = new IndoorLight(graphics, this.ctx.character, { level: 0.8 });
+    this.indoor = new IndoorLight(graphics, this.ctx.character, MALL_RIG);
     await this._capture();
   }
 

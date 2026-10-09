@@ -6,14 +6,24 @@ import { FONT } from '../interiors/Labels.js';
 
 /**
  * Every sign and picture in Hikari Mall painted once into one atlas
- * (2048 × 2048): the HIKARI MALL letters, shop names, aisle and department
+ * (4096 × 2048): the HIKARI MALL letters, shop names, aisle and department
  * boards, wayfinding, lane numbers, lot markings, posters, the register
  * screens, and the pictures of goods and rooms (MallPictures). One self-lit
  * material draws the signs (they read the same under the sunset and the
  * store lights) and one lit material the printed goods, so all of it costs
  * two draws per zone.
+ *
+ * A sign is listed as [width, height, painter, density = 1]: designed at
+ * width × height and painted at density times that (the painter draws in
+ * its design units, scaled), so it can be made sharper without changing
+ * its look or its shape. Densities lift the signs and pictures that were
+ * smeared even on a phone to 105–180 texels a metre as built (s_density):
+ * at 2048² the shop fascias had 76, the upper floor's 60, the logo 81 and
+ * the goods behind the shop windows 66; the rooms upstairs, only seen from
+ * the far side of the atrium, went from 40 to 60. All of it fills about
+ * 94 % of the atlas's height.
  */
-const W = 2048, H = 2048;
+const W = 4096, H = 2048;
 
 const AISLE_COLORS = { drinks: '#2f7fc1', dairy: '#5aa9d6', bakery: '#c98a4b', produce: '#4f9a4a', snacks: '#e2574c', pantry: '#d99a2b', frozen: '#6fb7d8', household: '#7a5fb3' };
 
@@ -110,45 +120,45 @@ function guide(g, x, y, w, h) {
   });
 }
 
-/** The sign list: id → [width, height, painter]. */
+/** The sign list: id → [width, height, painter, density]. */
 function signs() {
   const list = {
     ...pictures(),
     guide: [240, 320, guide],
     // Shop fascias (the shop row) and the upper floor's.
-    books: [384, 68, brand('#26324a', '#fff8ee', 'Hikari Books', '本 · 雑誌 · 文具', kanji('本', '#c9a227', '#26324a'))],
-    denki: [384, 68, brand('#f2c230', '#141518', 'DENKI PLAZA', 'TV · PC · スマホ · 家電', kanji('電', '#e2574c', '#ffffff'))],
-    drug: [384, 68, brand('#ffffff', '#2f6fb3', 'Kirei Drug', 'コスメ · くすり · 日用品', kanji('薬', '#2f6fb3', '#ffffff'))],
-    hyaku: [384, 68, brand('#e2574c', '#ffffff', 'Everything ¥100', '100円ショップ', kanji('¥', '#ffffff', '#e2574c'))],
-    cafe: [384, 68, brand('#f6dbe3', '#5b3b2e', 'Sakura Bakery Café', 'パン · ケーキ · コーヒー', flower('#e27c9a'))],
-    toys: [384, 68, brand('#2f6fb3', '#ffffff', 'Toy Planet', 'おもちゃ · ゲーム · ぬいぐるみ', ring('#f2c230'))],
-    shoes: [384, 68, brand('#3b3f46', '#ffffff', 'ASHI Shoes', 'スニーカー · ブーツ', dot('#e2574c'))],
-    ramen: [384, 68, brand('#7a2e2e', '#fff3dc', 'Ramen Ichiban', 'らーめん 一番', kanji('麺', '#fff3dc', '#7a2e2e'))],
-    games: [384, 68, brand('#141518', '#ff8ad8', 'GAME HIKARI', 'UFOキャッチャー · プリクラ', ring('#4fe3ff'))],
-    sports: [320, 60, brand('#1f6f8b', '#ffffff', 'Hikari Sports', '', dot('#f2c230'))],
-    home: [320, 60, brand('#efe6d0', '#5b4632', 'Living & Home', '', null)],
-    optical: [320, 60, brand('#ffffff', '#26324a', 'Mirai Optical', '', ring('#26324a'))],
-    foodcourt: [512, 75, brand('#e8892f', '#ffffff', 'Food Court  HIKARI DINING', 'フードコート 2F', null)],
-    kids: [320, 60, brand('#f2c230', '#2f6fb3', 'Kids Park', '', flower('#e2574c'))],
-    wear: [320, 60, brand('#3b3f46', '#ffffff', 'basics wear', '', null)],
-    cinema: [512, 75, brand('#141518', '#c9a227', 'HIKARI CINEMA', '映画館 · 8 SCREENS', null)],
-    salon: [320, 60, brand('#f6dbe3', '#3a2430', 'Hair Salon Rin', '', flower('#e27c9a'))],
-    tea: [320, 60, brand('#2f6b3a', '#fff8ee', 'Matcha Tea House', '', null)],
-    music: [320, 60, brand('#7a2e8a', '#ffffff', 'Sound Box', '', dot('#4fe3ff'))],
-    home2: [320, 60, brand('#d6b58a', '#3b2a1e', 'Nordic Living', '', null)],
-    bags: [320, 60, brand('#26324a', '#f6dbe3', 'Bag & Travel', '', null)],
+    books: [384, 68, brand('#26324a', '#fff8ee', 'Hikari Books', '本 · 雑誌 · 文具', kanji('本', '#c9a227', '#26324a')), 1.75],
+    denki: [384, 68, brand('#f2c230', '#141518', 'DENKI PLAZA', 'TV · PC · スマホ · 家電', kanji('電', '#e2574c', '#ffffff')), 1.75],
+    drug: [384, 68, brand('#ffffff', '#2f6fb3', 'Kirei Drug', 'コスメ · くすり · 日用品', kanji('薬', '#2f6fb3', '#ffffff')), 1.75],
+    hyaku: [384, 68, brand('#e2574c', '#ffffff', 'Everything ¥100', '100円ショップ', kanji('¥', '#ffffff', '#e2574c')), 1.75],
+    cafe: [384, 68, brand('#f6dbe3', '#5b3b2e', 'Sakura Bakery Café', 'パン · ケーキ · コーヒー', flower('#e27c9a')), 1.75],
+    toys: [384, 68, brand('#2f6fb3', '#ffffff', 'Toy Planet', 'おもちゃ · ゲーム · ぬいぐるみ', ring('#f2c230')), 1.75],
+    shoes: [384, 68, brand('#3b3f46', '#ffffff', 'ASHI Shoes', 'スニーカー · ブーツ', dot('#e2574c')), 1.75],
+    ramen: [384, 68, brand('#7a2e2e', '#fff3dc', 'Ramen Ichiban', 'らーめん 一番', kanji('麺', '#fff3dc', '#7a2e2e')), 1.75],
+    games: [384, 68, brand('#141518', '#ff8ad8', 'GAME HIKARI', 'UFOキャッチャー · プリクラ', ring('#4fe3ff')), 1.75],
+    sports: [320, 60, brand('#1f6f8b', '#ffffff', 'Hikari Sports', '', dot('#f2c230')), 1.75],
+    home: [320, 60, brand('#efe6d0', '#5b4632', 'Living & Home', '', null), 1.75],
+    optical: [320, 60, brand('#ffffff', '#26324a', 'Mirai Optical', '', ring('#26324a')), 1.75],
+    foodcourt: [512, 75, brand('#e8892f', '#ffffff', 'Food Court  HIKARI DINING', 'フードコート 2F', null), 1.5],
+    kids: [320, 60, brand('#f2c230', '#2f6fb3', 'Kids Park', '', flower('#e2574c')), 1.75],
+    wear: [320, 60, brand('#3b3f46', '#ffffff', 'basics wear', '', null), 1.75],
+    cinema: [512, 75, brand('#141518', '#c9a227', 'HIKARI CINEMA', '映画館 · 8 SCREENS', null), 1.5],
+    salon: [320, 60, brand('#f6dbe3', '#3a2430', 'Hair Salon Rin', '', flower('#e27c9a')), 1.75],
+    tea: [320, 60, brand('#2f6b3a', '#fff8ee', 'Matcha Tea House', '', null), 1.75],
+    music: [320, 60, brand('#7a2e8a', '#ffffff', 'Sound Box', '', dot('#4fe3ff')), 1.75],
+    home2: [320, 60, brand('#d6b58a', '#3b2a1e', 'Nordic Living', '', null), 1.75],
+    bags: [320, 60, brand('#26324a', '#f6dbe3', 'Bag & Travel', '', null), 1.75],
     // Wayfinding and notices.
-    wayMarket: [320, 70, way('F', 'Hikari Fresh Market', 'スーパーマーケット')],
-    wayStyle: [320, 70, way('S', 'Sakura Style', 'ファッション')],
-    wayWC: [320, 70, way('WC', 'Restrooms · お手洗い', 'Baby room · Lockers')],
-    wayUp: [320, 70, way('2F', 'Food Court · Cinema 3F', 'エスカレーター · エレベーター')],
-    wayExit: [320, 70, way('P', 'Exit · Parking', '出口 · 駐車場')],
+    wayMarket: [320, 70, way('F', 'Hikari Fresh Market', 'スーパーマーケット'), 1.5],
+    wayStyle: [320, 70, way('S', 'Sakura Style', 'ファッション'), 1.5],
+    wayWC: [320, 70, way('WC', 'Restrooms · お手洗い', 'Baby room · Lockers'), 1.5],
+    wayUp: [320, 70, way('2F', 'Food Court · Cinema 3F', 'エスカレーター · エレベーター'), 1.5],
+    wayExit: [320, 70, way('P', 'Exit · Parking', '出口 · 駐車場'), 1.5],
     info: [192, 72, board('#2f6fb3', '#ffffff', 'i  Information', '案内所')],
-    marketEntry: [384, 72, board('#2f8f5b', '#ffffff', 'ENTRANCE 入口', '', '#f6d24a')],
-    westDoor: [384, 72, board('#26324a', '#fff8ee', 'WEST ENTRANCE · 西口')],
-    eastDoor: [384, 72, board('#26324a', '#fff8ee', 'EAST ENTRANCE · 東口')],
+    marketEntry: [384, 72, board('#2f8f5b', '#ffffff', 'ENTRANCE 入口', '', '#f6d24a'), 1.5],
+    westDoor: [384, 72, board('#26324a', '#fff8ee', 'WEST ENTRANCE · 西口'), 1.5],
+    eastDoor: [384, 72, board('#26324a', '#fff8ee', 'EAST ENTRANCE · 東口'), 1.5],
     open: [96, 48, board('#2f8f5b', '#ffffff', 'OPEN')],
-    gachaSign: [384, 72, board('#f2c230', '#e2574c', 'GACHA GACHA', 'ガチャガチャの森')],
+    gachaSign: [384, 72, board('#f2c230', '#e2574c', 'GACHA GACHA', 'ガチャガチャの森'), 1.5],
     crepe: [192, 72, board('#f6c1d1', '#7a2e8a', 'Crêpe', 'クレープ')],
     logo: [896, 176, (g, x, y, w, h) => {
       g.fillStyle = '#26324a'; g.fillRect(x, y, w, h);
@@ -156,15 +166,15 @@ function signs() {
       fit(g, 'HIKARI MALL', w - h * 1.3, h * 0.62, 800);
       g.fillStyle = '#fff8ee'; g.textAlign = 'left'; g.textBaseline = 'middle';
       g.fillText('HIKARI MALL', x + h * 1.05, y + h * 0.53);
-    }],
-    market: [896, 156, board('#2f8f5b', '#ffffff', 'Hikari Fresh Market', 'SUPERMARKET · OPEN 9:00 – 22:00', '#f6d24a')],
+    }, 1.5],
+    market: [896, 156, board('#2f8f5b', '#ffffff', 'Hikari Fresh Market', 'SUPERMARKET · OPEN 9:00 – 22:00', '#f6d24a'), 1.25],
     style: [896, 156, (g, x, y, w, h) => {
       g.fillStyle = '#fbe9ee'; g.fillRect(x, y, w, h);
       sakura(g, x + h * 0.5, y + h * 0.5, h * 0.3, '#e27c9a');
       g.fillStyle = '#3a2430'; g.textAlign = 'center'; g.textBaseline = 'middle';
       fit(g, 'Sakura Style', w * 0.7, h * 0.5, 800); g.fillText('Sakura Style', x + w / 2, y + h * 0.42);
       fit(g, 'FASHION · SHOES · ACCESSORIES', w * 0.7, h * 0.17, 700); g.fillText('FASHION · SHOES · ACCESSORIES', x + w / 2, y + h * 0.78);
-    }],
+    }, 1.25],
     welcome: [512, 96, board('#26324a', '#fff8ee', 'WELCOME · いらっしゃいませ')],
     restrooms: [512, 128, board('#5b6475', '#ffffff', 'Restrooms · お手洗い', 'Baby room · Lockers')],
     fitting: [512, 112, board('#3a2430', '#fbe9ee', 'FITTING ROOMS', 'max. 3 items')],
@@ -172,7 +182,7 @@ function signs() {
     exit: [256, 128, board('#2f8f5b', '#ffffff', 'EXIT  →', 'Thank you!')],
     deptBakery: [512, 112, board('#c98a4b', '#fff8ee', 'Bakery', 'Fresh every morning')],
     deptDrinks: [512, 112, board('#2f7fc1', '#ffffff', 'Drinks', 'Ice cold')],
-    deptProduce: [512, 112, board('#4f9a4a', '#ffffff', 'Fruit & Vegetables', 'From local farms')],
+    deptProduce: [512, 112, board('#4f9a4a', '#ffffff', 'Fruit & Vegetables', 'From local farms'), 1.25],
     pylon: [192, 384, (g, x, y, w, h) => {
       g.fillStyle = '#26324a'; g.fillRect(x, y, w, h);
       sakura(g, x + w / 2, y + h * 0.16, w * 0.22, '#f3a9be');
@@ -182,7 +192,7 @@ function signs() {
       centred(g, 'Fresh Market', x + w * 0.08, y + h * 0.655, w * 0.84, w * 0.12, 800, '#ffffff');
       g.fillStyle = '#fbe9ee'; g.fillRect(x + w * 0.08, y + h * 0.77, w * 0.84, h * 0.15);
       centred(g, 'Sakura Style', x + w * 0.08, y + h * 0.845, w * 0.84, w * 0.12, 800, '#3a2430');
-    }],
+    }, 1.5],
     sale: [192, 288, (g, x, y, w, h) => {
       g.fillStyle = '#e2574c'; g.fillRect(x, y, w, h);
       centred(g, 'SALE', x, y + h * 0.3, w, w * 0.34, 800, '#ffffff');
@@ -207,7 +217,7 @@ function signs() {
       g.beginPath(); g.arc(x + w * 0.52, y + h * 0.2, w * 0.07, 0, Math.PI * 2); g.fill();
       g.beginPath(); g.moveTo(x + w * 0.5, y + h * 0.32); g.lineTo(x + w * 0.5, y + h * 0.58); g.lineTo(x + w * 0.7, y + h * 0.58); g.lineTo(x + w * 0.78, y + h * 0.78); g.stroke();
       g.beginPath(); g.arc(x + w * 0.44, y + h * 0.66, w * 0.2, Math.PI * 0.1, Math.PI * 1.55); g.stroke();
-    }],
+    }, 1.5],
     arrow: [128, 128, (g, x, y, w, h) => {
       g.fillStyle = '#ffffff';
       g.beginPath(); g.moveTo(x + w * 0.5, y + h * 0.06); g.lineTo(x + w * 0.86, y + h * 0.46); g.lineTo(x + w * 0.62, y + h * 0.46);
@@ -237,7 +247,8 @@ function signs() {
 export class MallSigns {
   constructor(scene) {
     const tex = new DynamicTexture('mall:signs', { width: W, height: H }, scene, true, Texture.TRILINEAR_SAMPLINGMODE);
-    tex.anisotropicFilteringLevel = 4;
+    // Fascias and hanging boards are mostly seen at a slant along the concourse and aisles.
+    tex.anisotropicFilteringLevel = 8;
     tex.wrapU = tex.wrapV = Texture.CLAMP_ADDRESSMODE;
     const g = tex.getContext();
     g.fillStyle = '#808080'; g.fillRect(0, 0, W, H);
@@ -246,8 +257,9 @@ export class MallSigns {
     // Skyline packing, tallest (then widest) first: each sign goes where the
     // stack under it is lowest (and, of equals, wastes the least room under it).
     const STEP = 4, pad = 2, sky = new Int32Array(W / STEP);
-    const entries = Object.entries(signs()).sort((a, b) => b[1][1] - a[1][1] || b[1][0] - a[1][0]);
-    for (const [id, [w, h, paint]] of entries) {
+    const entries = Object.entries(signs()).map(([id, [w, h, paint, d = 1]]) => [id, w, h, paint, d, Math.ceil(w * d), Math.ceil(h * d)])
+      .sort((a, b) => b[6] - a[6] || b[5] - a[5]);
+    for (const [id, dw, dh, paint, d, w, h] of entries) {
       const cols = Math.ceil((w + pad) / STEP);
       let best = -1, bestY = Infinity, bestWaste = Infinity;
       for (let c = 0; c + cols <= sky.length; c++) {
@@ -260,10 +272,11 @@ export class MallSigns {
       if (best < 0 || y + h > H) throw new Error(`mall sign atlas full at ${id}`);
       for (let k = best; k < best + cols; k++) sky[k] = y + h + pad;
       g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
-      paint(g, x, y, w, h);
+      g.translate(x, y); g.scale(d, d);
+      paint(g, 0, 0, dw, dh);
       g.restore();
       // v runs up the canvas (DynamicTexture's flip); a hair inside, so mips don't bleed.
-      this.aspects[id] = w / h;
+      this.aspects[id] = dw / dh;
       this.rects[id] = [(x + 1) / W, 1 - (y + h - 1) / H, (x + w - 1) / W, 1 - (y + 1) / H];
     }
     tex.update();

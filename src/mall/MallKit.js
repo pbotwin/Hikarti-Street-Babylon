@@ -40,11 +40,14 @@ export class MallMaterials {
     // Light panels, lamp heads, fridge light strips: unlit, bright enough to bloom.
     this.glow = this._pbr('mall:glow', { unlit: true });
     this.glass = this._pbr('mall:glass', { roughness: 0.04, metallic: 0.15, color: '#d7e8ef' });
-    this.glass.alpha = 0.16;
+    // Clear panes, as anime draws them: at 16 % with the store photo's
+    // reflection at 1.4 every shop seen through its window sat behind a
+    // blurred grey veil.
+    this.glass.alpha = 0.1;
     this.glass.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
     // Reflections fade with the glass's opacity (Babylon keeps them full by default: misted panes).
     this.glass.useRadianceOverAlpha = this.glass.useSpecularOverAlpha = false;
-    this.glass.environmentIntensity = 1.4;
+    this.glass.environmentIntensity = 0.5;
     this.glass.backFaceCulling = false;
     // Curtains: seen from both sides.
     this.fabric = this._pbr('mall:fabric', { roughness: 0.9 });
@@ -53,19 +56,30 @@ export class MallMaterials {
     this.mirror = this._pbr('mall:mirror', { roughness: 0.03, metallic: 1, color: '#e8ecef' });
     this.mirror.environmentIntensity = 1;
 
-    // Painted surfaces: each texture covers `span` metres (uv are metres).
-    this.hallFloor = this._painted('mall:hallFloor', paintTerrazzo, 2.4, { roughness: 0.2, aniso: 8 });
-    this.marketFloor = this._painted('mall:marketFloor', paintVinyl, 2.4, { roughness: 0.32, aniso: 8 });
-    this.woodFloor = this._painted('mall:woodFloor', paintPlanks, 2.4, { roughness: 0.42, aniso: 8 });
-    this.ceiling = this._painted('mall:ceiling', paintCeiling, 2.4, { roughness: 0.9 });
+    // Painted surfaces, in the street's anime style: clean flat tones, crisp
+    // joints, no photographic speckle (thousands of sub-pixel flecks read as
+    // grain up close and as blur once filtered). Each texture covers `span`
+    // metres (uv are metres): the floors and ceiling repeat every 1.2 m (one
+    // slab, or 2 × 2 tiles), 427 texels a metre (213 over 2.4 m looked soft
+    // at her feet).
+    this._shared = new Map();
+    this.hallFloor = this._painted('mall:hallFloor', paintTerrazzo, 1.2, { roughness: 0.4, aniso: 8 });
+    this.marketFloor = this._painted('mall:marketFloor', paintVinyl, 1.2, { roughness: 0.45, aniso: 8 });
+    this.woodFloor = this._painted('mall:woodFloor', paintPlanks, 1.2, { roughness: 0.5, aniso: 8 });
+    this.ceiling = this._painted('mall:ceiling', paintCeiling, 1.2, { roughness: 0.9, aniso: 8 });
     this.asphalt = this._painted('mall:asphalt', paintAsphalt, 4, { roughness: 0.92, aniso: 8 });
-    this.paving = this._painted('mall:paving', paintPaving, 2.4, { roughness: 0.85, aniso: 8 });
+    this.paving = this._painted('mall:paving', paintPaving, 1.2, { roughness: 0.85, aniso: 8 });
     this.cladding = this._painted('mall:cladding', paintCladding, 6, { roughness: 0.6 });
     this.grass = this._painted('mall:grass', paintGrass, 3, { roughness: 1, aniso: 4 });
-    this.wood = this._painted('mall:wood', paintPlanks, 1.2, { roughness: 0.55 });
-    // Shelf-edge strips carry their own uv (one tile per 0.8 m along, the strip's height across).
-    this.strip = this._painted('mall:priceStrip', paintPriceStrip, 1, { roughness: 0.5, height: 64 });
-    for (const m of [this.hallFloor, this.marketFloor, this.woodFloor]) m.environmentIntensity = 1.1;
+    this.wood = this._painted('mall:wood', paintPlanks, 1.2, { roughness: 0.55, aniso: 8 });
+    // Shelf-edge strips carry their own uv (one tile per 0.8 m along, 0..1
+    // across): scaled like a metre texture, the rail repeated 8 times over
+    // its 5 cm and shimmered as a band of yellow noise.
+    this.strip = this._painted('mall:priceStrip', paintPriceStrip, 1, { roughness: 0.5, height: 64, ownUv: true });
+    // The polished floors keep a sheen of the store, not a mirror: the store
+    // photo (one 128 px cube from the market's middle) only smeared across
+    // them, blurred and out of place.
+    for (const m of [this.hallFloor, this.marketFloor, this.woodFloor]) m.environmentIntensity = 0.9;
   }
 
   _pbr(name, { roughness = 0.6, metallic = 0, color = null, unlit = false }) {
@@ -78,15 +92,21 @@ export class MallMaterials {
     return m;
   }
 
-  _painted(name, paint, span, { roughness, aniso = 4, height = 512 }) {
-    const tex = new DynamicTexture(name, { width: 512, height }, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
-    paint(tex.getContext(), 512, height);
-    tex.update();
-    tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
-    tex.uScale = 1 / span;
-    tex.vScale = 512 / height / span;
-    tex.anisotropicFilteringLevel = aniso;
-    this.textures.push(tex);
+  /** A material on a painted texture; finishes painted alike at the same span share one (planks: floor and furniture). */
+  _painted(name, paint, span, { roughness, aniso = 4, height = 512, ownUv = false }) {
+    const key = `${paint.name}:${span}`;
+    let tex = this._shared.get(key);
+    if (!tex) {
+      tex = new DynamicTexture(name, { width: 512, height }, this.scene, true, Texture.TRILINEAR_SAMPLINGMODE);
+      paint(tex.getContext(), 512, height);
+      tex.update();
+      tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
+      tex.uScale = 1 / span;
+      tex.vScale = ownUv ? 1 : 512 / height / span;
+      tex.anisotropicFilteringLevel = aniso;
+      this._shared.set(key, tex);
+      this.textures.push(tex);
+    }
     const m = this._pbr(name, { roughness });
     m.albedoTexture = tex;
     return m;
@@ -96,6 +116,7 @@ export class MallMaterials {
     for (const m of this.all) m.dispose();
     for (const t of this.textures) t.dispose();
     this.all.length = this.textures.length = 0;
+    this._shared.clear();
   }
 }
 
@@ -318,101 +339,105 @@ export function planter(b, M, x, z, r, h = 0.6) {
 }
 
 // ---------------------------------------------------------------- painters
+/**
+ * The painters draw a tile that repeats seamlessly: joints sit on the tile's
+ * edges, half on each side, and anything crossing an edge is drawn again on
+ * the far side.
+ */
 /** Deterministic noise for the painters. */
 function rng(seed) {
   let a = seed >>> 0;
   return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
-const speckle = (g, w, h, n, colors, rMax, seed) => {
+/** `draw(dx, dy)` at the tile and at its wrapped neighbours (across x, and y unless h = 0): shapes over an edge continue on the far side. */
+const wrapped = (w, h, draw) => { for (const dx of [-w, 0, w]) for (const dy of h ? [-h, 0, h] : [0]) draw(dx, dy); };
+/** A few soft flecks (terrazzo chips, asphalt grit): `n` of radius up to `rMax`, kept sparse and low in contrast. */
+const flecks = (g, w, h, n, colors, rMax, alpha, seed) => {
   const r = rng(seed);
   for (let i = 0; i < n; i++) {
+    const x = r() * w, y = r() * h, rad = rMax * (0.4 + r() * 0.6), a = r() * Math.PI;
     g.fillStyle = colors[Math.floor(r() * colors.length)];
-    g.globalAlpha = 0.25 + r() * 0.6;
-    g.beginPath(); g.arc(r() * w, r() * h, 0.4 + r() * rMax, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = alpha;
+    wrapped(w, h, (dx, dy) => { g.beginPath(); g.ellipse(x + dx, y + dy, rad, rad * 0.7, a, 0, Math.PI * 2); g.fill(); });
   }
   g.globalAlpha = 1;
 };
-const grid = (g, w, h, step, color, width) => {
+/** Joints of an n × n tiling, `width` px, centred on the tile edges. */
+const joints = (g, w, h, n, color, width) => {
   g.fillStyle = color;
-  for (let x = 0; x < w; x += step) g.fillRect(x, 0, width, h);
-  for (let y = 0; y < h; y += step) g.fillRect(0, y, w, width);
+  for (let i = 0; i <= n; i++) {
+    g.fillRect(i * w / n - width / 2, 0, width, h);
+    g.fillRect(0, i * h / n - width / 2, w, width);
+  }
+};
+/** n × n tiles in a checker of two close tones. */
+const tiles = (g, w, h, n, a, b) => {
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { g.fillStyle = (i + j) % 2 ? b : a; g.fillRect(i * w / n, j * h / n, w / n, h / n); }
 };
 
-/** Polished terrazzo, 1.2 m slabs (texture = 2.4 m). */
+/** Polished terrazzo: one 1.2 m slab of warm cream, sparse chips. */
 function paintTerrazzo(g, w, h) {
-  g.fillStyle = '#d9d1c4'; g.fillRect(0, 0, w, h);
-  const r = rng(11);
-  for (let i = 0; i < 4; i++) {
-    g.fillStyle = `rgba(${200 + r() * 30},${190 + r() * 30},${175 + r() * 30},0.25)`;
-    g.fillRect((i % 2) * w / 2, Math.floor(i / 2) * h / 2, w / 2, h / 2);
-  }
-  speckle(g, w, h, 2600, ['#8d8a86', '#b9a48f', '#5d5a58', '#c98c6c', '#f8f5ef'], 1.6, 3);
-  grid(g, w, h, w / 2, 'rgba(120,110,100,0.45)', 2);
+  g.fillStyle = '#e6ded1'; g.fillRect(0, 0, w, h);
+  flecks(g, w, h, 90, ['#c9b9a3', '#f6f2ea', '#b7a690', '#d9a98c'], 4, 0.55, 3);
+  joints(g, w, h, 1, '#bdb1a1', 3);
 }
 
-/** Supermarket vinyl tiles, 60 cm. */
+/** Supermarket vinyl tiles, 60 cm (2 × 2 per texture). */
 function paintVinyl(g, w, h) {
-  const r = rng(5), n = 4, s = w / n;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const k = 218 + r() * 12;
-    g.fillStyle = `rgb(${k},${k - 2},${k - 6})`;
-    g.fillRect(i * s, j * s, s, s);
-  }
-  speckle(g, w, h, 1400, ['#cfc9bf', '#ffffff', '#b8b2a8'], 1.1, 9);
-  grid(g, w, h, s, 'rgba(150,145,138,0.55)', 2);
+  tiles(g, w, h, 2, '#f2f0eb', '#e8e5de');
+  joints(g, w, h, 2, '#cdc8bf', 2);
 }
 
-/** Light oak planks (18 cm boards). */
+/** Light oak boards, 17 cm wide, staggered joints; a few long grain strokes. */
 function paintPlanks(g, w, h) {
-  const r = rng(21), rows = 13, bh = h / rows;
+  const r = rng(21), rows = 7, bh = h / rows;
+  const tones = ['#d6b07c', '#cfa672', '#dcb98a', '#c99f6b'];
   for (let j = 0; j < rows; j++) {
-    let x = -r() * w * 0.5;
-    while (x < w) {
-      const len = w * (0.35 + r() * 0.5);
-      const t = r();
-      g.fillStyle = `rgb(${196 + t * 30},${158 + t * 26},${112 + t * 22})`;
-      g.fillRect(x, j * bh, len, bh);
-      g.strokeStyle = 'rgba(120,85,50,0.18)';
-      g.lineWidth = 1;
-      for (let k = 0; k < 6; k++) {
-        const y = j * bh + r() * bh;
-        g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + len * 0.3, y + (r() - 0.5) * 4, x + len * 0.7, y + (r() - 0.5) * 4, x + len, y); g.stroke();
+    const y = j * bh;
+    // Joints across the row (two or three boards; they wrap round the tile).
+    const n = 2 + Math.floor(r() * 2), start = r() * w;
+    for (let k = 0; k < n; k++) {
+      const x = start + k * w / n + (r() - 0.5) * w * 0.12, len = w / n + w * 0.12;
+      const tone = tones[Math.floor(r() * tones.length)];
+      wrapped(w, 0, (dx) => {
+        g.fillStyle = tone; g.fillRect(x + dx, y, len, bh);
+        g.fillStyle = '#9c7347'; g.fillRect(x + dx - 1, y, 2, bh);
+      });
+      g.strokeStyle = 'rgba(150,108,62,0.35)'; g.lineWidth = 1.5;
+      for (let s = 0; s < 2; s++) {
+        const gy = y + bh * (0.3 + r() * 0.4), tilt = (r() - 0.5) * 2;
+        wrapped(w, 0, (dx) => { g.beginPath(); g.moveTo(x + dx + len * 0.15, gy); g.lineTo(x + dx + len * 0.75, gy + tilt); g.stroke(); });
       }
-      g.fillStyle = 'rgba(90,60,35,0.5)';
-      g.fillRect(x, j * bh, 1.5, bh);
-      x += len;
     }
-    g.fillStyle = 'rgba(90,60,35,0.45)';
-    g.fillRect(0, j * bh, w, 1.5);
+    g.fillStyle = '#9c7347'; g.fillRect(0, y - 1, w, 2);
   }
+  g.fillRect(0, h - 1, w, 1);
 }
 
-/** Acoustic ceiling tiles in a light T-bar grid (60 cm). */
+/** Ceiling tiles in a light T-bar grid (60 cm, 2 × 2 per texture). */
 function paintCeiling(g, w, h) {
-  g.fillStyle = '#e0dfdb'; g.fillRect(0, 0, w, h);
-  speckle(g, w, h, 3000, ['#cbc9c4', '#ecebe7'], 0.8, 13);
-  grid(g, w, h, w / 4, '#b8b6b1', 4);
+  g.fillStyle = '#f1efea'; g.fillRect(0, 0, w, h);
+  joints(g, w, h, 2, '#cfccc5', 6);
 }
 
+/** The lot's asphalt: one deep blue-grey with a little grit and a few worn patches. */
 function paintAsphalt(g, w, h) {
-  g.fillStyle = '#55565b'; g.fillRect(0, 0, w, h);
-  speckle(g, w, h, 9000, ['#3e3f43', '#6f7075', '#4a4b50', '#808188'], 1.3, 17);
+  g.fillStyle = '#585a62'; g.fillRect(0, 0, w, h);
   const r = rng(23);
-  g.globalAlpha = 0.08;
-  for (let i = 0; i < 40; i++) { g.fillStyle = r() < 0.5 ? '#2c2d30' : '#7a7b80'; g.beginPath(); g.arc(r() * w, r() * h, 10 + r() * 50, 0, Math.PI * 2); g.fill(); }
+  g.globalAlpha = 0.07;
+  for (let i = 0; i < 18; i++) {
+    const x = r() * w, y = r() * h, rad = 30 + r() * 60;
+    g.fillStyle = r() < 0.5 ? '#3c3d44' : '#787a82';
+    wrapped(w, h, (dx, dy) => { g.beginPath(); g.arc(x + dx, y + dy, rad, 0, Math.PI * 2); g.fill(); });
+  }
   g.globalAlpha = 1;
+  flecks(g, w, h, 900, ['#6c6e76', '#45464d'], 1.4, 0.6, 17);
 }
 
-/** Concrete pavers, 60 × 60 cm, a few tones. */
+/** Concrete pavers, 60 × 60 cm (2 × 2 per texture), two tones. */
 function paintPaving(g, w, h) {
-  const r = rng(29), n = 4, s = w / n;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const k = 196 + r() * 22;
-    g.fillStyle = `rgb(${k},${k - 4},${k - 10})`;
-    g.fillRect(i * s, j * s, s, s);
-  }
-  speckle(g, w, h, 3000, ['#9d978c', '#e0dbd2', '#8a857c'], 1, 31);
-  grid(g, w, h, s, 'rgba(95,90,82,0.6)', 3);
+  tiles(g, w, h, 2, '#d6d1c7', '#cbc5ba');
+  joints(g, w, h, 2, '#9e978b', 4);
 }
 
 /** Facade panels: 1 m courses, 3 m panels, staggered. */
@@ -433,19 +458,24 @@ function paintCladding(g, w, h) {
   }
 }
 
+/** Lawn: a flat green with lighter and darker blade strokes. */
 function paintGrass(g, w, h) {
-  g.fillStyle = '#6f8f4e'; g.fillRect(0, 0, w, h);
-  speckle(g, w, h, 12000, ['#5b7c3d', '#86a35d', '#4e6c34', '#9bb26c'], 1.5, 41);
+  g.fillStyle = '#6f9a4c'; g.fillRect(0, 0, w, h);
+  const r = rng(41);
+  g.lineWidth = 2; g.lineCap = 'round';
+  for (let i = 0; i < 1400; i++) {
+    const x = r() * w, y = r() * h, l = 4 + r() * 6, lean = (r() - 0.5) * 4;
+    g.strokeStyle = r() < 0.6 ? '#86b35c' : '#5a8440';
+    wrapped(w, h, (dx, dy) => { g.beginPath(); g.moveTo(x + dx, y + dy); g.lineTo(x + dx + lean, y + dy - l); g.stroke(); });
+  }
 }
 
-/** Shelf-edge price strip: white rail with yellow tags. */
+/**
+ * Shelf-edge price rail: cream, with a yellow lip and its shadow line. The
+ * prices are the products' own tags (GroceryPrint), clipped on in front.
+ */
 function paintPriceStrip(g, w, h) {
-  g.fillStyle = '#f4f3ee'; g.fillRect(0, 0, w, h);
-  const r = rng(43);
-  for (let x = 6; x < w - 40; x += 64) {
-    g.fillStyle = '#f6d24a'; g.fillRect(x, 10, 46, h - 20);
-    g.fillStyle = '#222'; g.font = `700 ${h * 0.42}px sans-serif`; g.fillText(String(1 + Math.floor(r() * 9)), x + 6, h * 0.66);
-    g.fillRect(x + 26, h * 0.35, 14, 2); g.fillRect(x + 26, h * 0.55, 10, 2);
-  }
-  g.fillStyle = '#c9c7c0'; g.fillRect(0, 0, w, 3); g.fillRect(0, h - 3, w, 3);
+  g.fillStyle = '#f7f5ef'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#f2c94a'; g.fillRect(0, 0, w, h * 0.22);
+  g.fillStyle = '#c9c4b8'; g.fillRect(0, h * 0.22, w, 2); g.fillRect(0, h - 3, w, 3);
 }

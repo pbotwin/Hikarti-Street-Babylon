@@ -10,7 +10,8 @@ import { FONT } from '../interiors/Labels.js';
  * menus). A shop's shelf is a box with one of these across it: from the
  * concourse it reads as a shelf full of goods for two triangles a bay.
  *
- * Each entry: id → [width, height, painter(g, x, y, w, h)].
+ * Each entry: id → [width, height, painter(g, x, y, w, h), density]
+ * (MallSigns' sign list).
  */
 
 function text(g, s, x, y, size, color, weight = 800, align = 'center') {
@@ -243,14 +244,14 @@ const card = (price, bg = '#f6d24a', fg = '#c0392b') => (g, x, y, w, h) => {
 export function pictures() {
   return {
     // ---------------------------------------------------------------- shelves of goods (lit)
-    shelfBooks: [160, 160, shelves('#5b4632', '#8a6a48', 5, book, 3)],
-    shelfCosmetics: [160, 160, shelves('#fbf6f4', '#e9dfe0', 5, bottle, 5)],
-    shelfToys: [160, 160, shelves('#eef2f7', '#d8dde4', 4, toy, 7)],
-    shelfShoes: [160, 160, shelves('#f4efe8', '#d6cfc4', 4, shoe, 9)],
-    shelfHyaku: [160, 160, shelves('#f7f4ee', '#e2574c', 5, goods, 11)],
-    breadRack: [192, 96, shelves('#6b4a32', '#8a6a48', 3, bread, 13)],
+    shelfBooks: [160, 160, shelves('#5b4632', '#8a6a48', 5, book, 3), 2],
+    shelfCosmetics: [160, 160, shelves('#fbf6f4', '#e9dfe0', 5, bottle, 5), 2],
+    shelfToys: [160, 160, shelves('#eef2f7', '#d8dde4', 4, toy, 7), 2],
+    shelfShoes: [160, 160, shelves('#f4efe8', '#d6cfc4', 4, shoe, 9), 2],
+    shelfHyaku: [160, 160, shelves('#f7f4ee', '#e2574c', 5, goods, 11), 2],
+    breadRack: [192, 96, shelves('#6b4a32', '#8a6a48', 3, bread, 13), 1.5],
     candy: [192, 96, shelves('#f2f0ea', '#d0ccc4', 3, candy, 15)],
-    screens: [320, 160, screens],
+    screens: [320, 160, screens, 1.5],
     // ---------------------------------------------------------------- machine fronts and kiosks
     gacha: [96, 144, (g, x, y, w, h) => {
       const rnd = mulberry32(19);
@@ -278,14 +279,14 @@ export function pictures() {
       g.fillStyle = '#f2c230'; g.fillRect(x + w * 0.1, y + h * 0.66, w * 0.8, h * 0.08);
       g.fillStyle = '#e2574c'; g.beginPath(); g.arc(x + w * 0.35, y + h * 0.8, w * 0.07, 0, Math.PI * 2); g.fill();
       g.fillStyle = '#2f6fb3'; g.beginPath(); g.arc(x + w * 0.62, y + h * 0.8, w * 0.07, 0, Math.PI * 2); g.fill();
-    }],
+    }, 1.5],
     rhythm: [96, 192, (g, x, y, w, h) => {
       g.fillStyle = '#141518'; g.fillRect(x, y, w, h);
       const gr = g.createLinearGradient(x, y + h * 0.1, x, y + h * 0.5); gr.addColorStop(0, '#7a2e8a'); gr.addColorStop(1, '#1f6f8b');
       g.fillStyle = gr; g.fillRect(x + w * 0.08, y + h * 0.1, w * 0.84, h * 0.4);
       for (let i = 0; i < 6; i++) { g.fillStyle = BRIGHT[i]; g.beginPath(); g.arc(x + w * (0.2 + (i % 3) * 0.3), y + h * (0.62 + Math.floor(i / 3) * 0.12), w * 0.09, 0, Math.PI * 2); g.fill(); }
       text(g, 'DANCE!', x + w / 2, y + h * 0.05, h * 0.06, '#f6c1d1', 900);
-    }],
+    }, 1.5],
     vending: [96, 192, (g, x, y, w, h) => {
       const rnd = mulberry32(29);
       g.fillStyle = '#d9e6f2'; g.fillRect(x, y, w, h);
@@ -298,7 +299,7 @@ export function pictures() {
       g.fillStyle = '#2f6fb3'; g.fillRect(x, y + h * 0.58, w, h * 0.1);
       text(g, 'Drinks', x + w / 2, y + h * 0.63, h * 0.05, '#fff', 900);
       g.fillStyle = '#1b1e24'; g.fillRect(x + w * 0.15, y + h * 0.82, w * 0.7, h * 0.09);
-    }],
+    }, 1.5],
     purikura: [128, 192, (g, x, y, w, h) => {
       const gr = g.createLinearGradient(x, y, x + w, y + h); gr.addColorStop(0, '#f6c1d1'); gr.addColorStop(1, '#c9b2ec');
       g.fillStyle = gr; g.fillRect(x, y, w, h);
@@ -314,7 +315,7 @@ export function pictures() {
       text(g, 'PURI ♡', x + w / 2, y + h * 0.13, w * 0.17, '#ffffff', 900);
       text(g, 'プリクラ', x + w / 2, y + h * 0.72, w * 0.13, '#7a2e8a', 900);
       text(g, '¥500', x + w / 2, y + h * 0.86, w * 0.1, '#7a2e8a', 900);
-    }],
+    }, 2],
     // ---------------------------------------------------------------- food
     ramenMenu: [384, 96, (g, x, y, w, h) => {
       g.fillStyle = '#2a1a12'; g.fillRect(x, y, w, h);
@@ -327,7 +328,7 @@ export function pictures() {
         g.fillStyle = '#4f9a4a'; g.fillRect(cx + w * 0.01, y + h * 0.42, w * 0.02, h * 0.05);
         text(g, `${n} ${p}`, cx, y + h * 0.84, h * 0.17, '#fff8ee', 800);
       });
-    }],
+    }, 2],
     samples: [192, 96, (g, x, y, w, h) => {
       const rnd = mulberry32(37);
       g.fillStyle = '#efe6d0'; g.fillRect(x, y, w, h);
@@ -343,18 +344,18 @@ export function pictures() {
       g.fillStyle = c; g.beginPath(); g.ellipse(x + bw / 2, y + h * 0.7, bw / 2 - 1, h * 0.26, 0, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x + bw * 0.3, y + h * 0.55, bw * 0.4, 2);
       return bw + 2;
-    }, 41)],
+    }, 41), 1.5],
     cafeMenu: [192, 96, (g, x, y, w, h) => {
       g.fillStyle = '#2b2b2b'; g.fillRect(x, y, w, h);
       text(g, 'CAFÉ MENU', x + w / 2, y + h * 0.14, h * 0.13, '#f6c1d1', 900);
       const rows = [['Sakura Latte', '480'], ['Melon Pan', '220'], ['Matcha Roll', '380'], ['Strawberry Shortcake', '450']];
       rows.forEach(([n, p], i) => { text(g, n, x + w * 0.08, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'left'); text(g, `¥${p}`, x + w * 0.92, y + h * (0.36 + i * 0.17), h * 0.1, '#fff8ee', 700, 'right'); });
-    }],
+    }, 1.5],
     // ---------------------------------------------------------------- upper-floor interiors (self-lit, behind glass)
-    roomShelves: [256, 128, room('#f2efe9', '#d8d1c6', '#2f6fb3', 'shelves')],
-    roomRacks: [256, 128, room('#f6f1ec', '#cdb89a', '#e27c9a', 'racks')],
-    roomFood: [256, 128, room('#efe6d8', '#bfae96', '#e2574c', 'food')],
-    roomCinema: [256, 128, room('#2b2530', '#4a3a42', '#c9a227', 'cinema')],
+    roomShelves: [256, 128, room('#f2efe9', '#d8d1c6', '#2f6fb3', 'shelves'), 1.5],
+    roomRacks: [256, 128, room('#f6f1ec', '#cdb89a', '#e27c9a', 'racks'), 1.5],
+    roomFood: [256, 128, room('#efe6d8', '#bfae96', '#e2574c', 'food'), 1.5],
+    roomCinema: [256, 128, room('#2b2530', '#4a3a42', '#c9a227', 'cinema'), 1.5],
     // ---------------------------------------------------------------- murals, banners, decoration
     muralProduce: [384, 120, (g, x, y, w, h) => {
       const rnd = mulberry32(43);
@@ -366,30 +367,30 @@ export function pictures() {
         g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
       }
       text(g, '旬の野菜と果物', x + w / 2, y + h * 0.26, h * 0.24, '#ffffff', 900);
-    }],
+    }, 1.5],
     muralBakery: [384, 120, (g, x, y, w, h) => {
       const rnd = mulberry32(47);
       g.fillStyle = '#8a5a2b'; g.fillRect(x, y, w, h);
       for (let i = 0; i < 26; i++) bread(g, x + rnd() * (w - 40), y + h * 0.5, 40, h * 0.45, rnd);
       text(g, '焼きたてパン', x + w / 2, y + h * 0.26, h * 0.24, '#fff3dc', 900);
-    }],
+    }, 1.5],
     autumn: [96, 256, banner('#c0392b', '#e8892f', 'AUTUMN FAIR', '秋の大感謝祭', (g, x, y, w, h) => {
       const rnd = mulberry32(53);
       for (let i = 0; i < 9; i++) maple(g, x + rnd() * w, y + rnd() * h * 0.4, w * (0.08 + rnd() * 0.08), rnd.pick(['#f2c230', '#fff1d6', '#7a2e2e']));
-    })],
+    }), 2],
     halloween: [96, 256, banner('#3a2459', '#e8892f', 'HALLOWEEN', '10.31 イベント', (g, x, y, w, h) => {
       pumpkin(g, x + w * 0.5, y + h * 0.15, w * 0.24);
       g.fillStyle = '#fff8ee'; for (let i = 0; i < 6; i++) g.fillRect(x + w * (0.1 + i * 0.15), y + h * 0.3, 3, 3);
-    })],
+    }), 2],
     sakuraWeek: [96, 256, banner('#f6c1d1', '#e27c9a', 'POINT x5', 'ポイント5倍デー', (g, x, y, w, h) => {
       g.fillStyle = 'rgba(255,255,255,0.75)'; g.beginPath(); g.arc(x + w / 2, y + h * 0.17, w * 0.3, 0, Math.PI * 2); g.fill();
       text(g, '5', x + w / 2, y + h * 0.17, w * 0.4, '#e27c9a', 900);
-    })],
+    }), 2],
     harvest: [384, 96, (g, x, y, w, h) => {
       g.fillStyle = '#e8892f'; g.fillRect(x, y, w, h);
       for (let i = 0; i < 8; i++) maple(g, x + w * (0.05 + i * 0.13), y + h * 0.82, h * 0.13, i % 2 ? '#c0392b' : '#f2c230');
       text(g, '秋の味覚フェア', x + w / 2, y + h * 0.36, h * 0.36, '#fff8ee', 900);
-    }],
+    }, 1.5],
     tokubai: [192, 72, (g, x, y, w, h) => {
       g.fillStyle = '#e2574c'; g.fillRect(x, y, w, h);
       g.fillStyle = '#f6d24a'; g.fillRect(x, y + h * 0.82, w, h * 0.18);
@@ -398,7 +399,7 @@ export function pictures() {
     price198: [64, 88, card('¥198')],
     price98: [64, 88, card('¥98')],
     price298: [64, 88, card('¥298', '#ffffff', '#e2574c')],
-    newItem: [64, 88, card('NEW', '#2f6fb3', '#ffffff')],
+    newItem: [64, 88, card('NEW', '#2f6fb3', '#ffffff'), 1.5],
     fashionPoster: [160, 240, (g, x, y, w, h) => {
       const gr = g.createLinearGradient(x, y, x, y + h); gr.addColorStop(0, '#efe0d0'); gr.addColorStop(1, '#c9a98a');
       g.fillStyle = gr; g.fillRect(x, y, w, h);
@@ -416,6 +417,6 @@ export function pictures() {
       g.fillStyle = 'rgba(255,255,255,0.18)'; for (let i = 0; i < 5; i++) { g.beginPath(); g.arc(x + w * (0.15 + i * 0.18), y + h * 0.7, h * (0.1 + i * 0.03), 0, Math.PI * 2); g.fill(); }
       text(g, 'HIKARI CINEMA', x + w / 2, y + h * 0.3, h * 0.13, '#ffffff', 900);
       text(g, 'NOW SHOWING · 3F', x + w / 2, y + h * 0.5, h * 0.08, '#f6c1d1', 800);
-    }],
+    }, 2],
   };
 }

@@ -5,8 +5,10 @@ import { ToonPlugin } from '../player/Vrm.js';
  * Store lighting for the walk-in shops and Hikari Mall: the ceiling panels
  * as a near-vertical key light (shadows straight down under shelves and
  * tables), the room's own photo as reflections and bounce light (once
- * taken), and no ink outlines or light rays: inside is meant to look like a
- * real room. The sunset rig is restored on the way out.
+ * taken), and as much of the ink outlines and of her outline as the rig
+ * keeps (the walk-in shops none: they are meant to look like real rooms; the
+ * mall all of it, so it reads as the same anime world as the street). Light
+ * rays are off inside. The sunset rig is restored on the way out.
  *
  * The shops switch at once (behind their fade to white); the mall, walked
  * into in view, fades between the two (`fadeTo`, `update`): switched at
@@ -18,19 +20,24 @@ import { ToonPlugin } from '../player/Vrm.js';
  * across the floor. Every step only sets uniforms: no shader is built
  * during the fade, and nothing is allocated per frame.
  */
-// Indoor rig (the original's shop lights), in linear colours like Graphics' sunset rig.
-const SHOP_DIR = new Vector3(0.12, 0.97, 0.2).normalize();
-const SHOP_SUN = Color3.FromHexString('#fff4e8').toLinearSpace();
-const SHOP_SKY = Color3.FromHexString('#f6f7ff').toLinearSpace();
-const SHOP_GROUND = Color3.FromHexString('#d9d1c4').toLinearSpace();
-// With the photo, the fill is split between the hemisphere light and the
-// photo's bounce light; without one (before it is taken) the hemisphere
-// light carries it all.
-const SHOP = { lit: { sun: 1.9, hemi: 0.55, env: 0.85 }, unlit: { sun: 2.2, hemi: 1.5, env: 0 } };
-// The toon bands don't sample the room photo (the bounce light the dimmer
-// sky fill leaves to it), so her fill stays at the shop's full value: with
-// the dimmed one her hair went near-black inside.
-const SHOP_TOON_FILL = 1.5;
+const lin = (hex) => Color3.FromHexString(hex).toLinearSpace();
+
+/**
+ * The walk-in shops' rig (the original's shop lights), in linear colours like
+ * Graphics' sunset rig. With the room's photo the fill is split between the
+ * hemisphere light and the photo's bounce light (`lit`); without one (before
+ * it is taken) the hemisphere light carries it all (`unlit`).
+ */
+export const SHOP_RIG = {
+  dir: new Vector3(0.12, 0.97, 0.2).normalize(),
+  sun: lin('#fff4e8'), sky: lin('#f6f7ff'), ground: lin('#d9d1c4'),
+  lit: { sun: 1.9, hemi: 0.55, env: 0.85 }, unlit: { sun: 2.2, hemi: 1.5, env: 0 },
+  // The toon bands don't sample the room photo (the bounce light the dimmer
+  // sky fill leaves to it), so her fill stays at the shop's full value: with
+  // the dimmed one her hair went near-black inside.
+  toonFill: 1.5,
+  ink: 0,            // share of the street's ink outlines (and her outline) kept inside
+};
 // Fill at the fade's middle, where neither key light nor photo shines:
 // screen brightness there measured between the two rigs' (s_door.mjs).
 const MID_HEMI = 3.6;
@@ -39,11 +46,11 @@ const MID_HEMI = 3.6;
 const FADE = 0.8;
 
 export class IndoorLight {
-  /** `level` scales the shop rig's light (a big, white-walled store needs less than a small shop). */
-  constructor(gfx, character, { level = 1 } = {}) {
+  /** `rig`: the indoor light (SHOP_RIG's fields). */
+  constructor(gfx, character, rig = SHOP_RIG) {
     this.gfx = gfx;
     this.character = character;
-    this.level = level;
+    this.rig = rig;
     this.saved = null;     // the outdoor rig while indoors (or fading)
     this.mix = 0;          // 0 outdoor … 1 indoor
     this._target = 0;
@@ -104,20 +111,20 @@ export class IndoorLight {
   /**
    * The rig at `mix`: the first half fades the sun and the sky photo out,
    * the second fades the shop's key light and photo in; colours, fill, ink
-   * and her outlines blend across the whole fade (eased: it starts and ends
-   * gently).
+   * and her outlines blend across the whole fade to the rig's (eased: it
+   * starts and ends gently).
    */
   _apply(mix, drawn) {
     const s = this.saved, L = this.gfx, scene = L.scene;
     const was = this.mix;
     this.mix = mix;
     if (mix === 0) { this._restore(drawn); return; }
-    const shop = this._env ? SHOP.lit : SHOP.unlit;
+    const rig = this.rig, shop = this._env ? rig.lit : rig.unlit;
     const k = mix * mix * (3 - 2 * mix);
     const inner = k >= 0.5;
     if (was === 0 || inner !== (was * was * (3 - 2 * was) >= 0.5)) {
-      this._aim(inner ? SHOP_DIR : s.dir);
-      L.sun.diffuse.copyFrom(inner ? SHOP_SUN : s.color);
+      this._aim(inner ? rig.dir : s.dir);
+      L.sun.diffuse.copyFrom(inner ? rig.sun : s.color);
       L.raysAllowed = inner ? false : s.rays;
     }
     // The half's photo (also a room's new one, taken while lit). No photo
@@ -126,18 +133,18 @@ export class IndoorLight {
     if (env && scene.environmentTexture !== env) L.setEnvironment(env, drawn());
     // The key light and the photo of the current half, faded toward the middle.
     const key = inner ? 2 * k - 1 : 1 - 2 * k;
-    const lv = this.level;
-    L.sun.intensity = key * (inner ? shop.sun * lv : s.i);
-    scene.environmentIntensity = key * (inner ? shop.env * lv : s.envI);
-    L.hemi.intensity = MID_HEMI + ((inner ? shop.hemi * lv : s.hi) - MID_HEMI) * key;
-    Color3.LerpToRef(s.sky, SHOP_SKY, k, L.hemi.diffuse);
-    Color3.LerpToRef(s.ground, SHOP_GROUND, k, L.hemi.groundColor);
-    L.ink = s.ink * (1 - k);
-    for (const [m, w] of s.outlined) { m.outlineWidth = w * (1 - k); m.renderOutline = k < 1; }
+    L.sun.intensity = key * (inner ? shop.sun : s.i);
+    scene.environmentIntensity = key * (inner ? shop.env : s.envI);
+    L.hemi.intensity = MID_HEMI + ((inner ? shop.hemi : s.hi) - MID_HEMI) * key;
+    Color3.LerpToRef(s.sky, rig.sky, k, L.hemi.diffuse);
+    Color3.LerpToRef(s.ground, rig.ground, k, L.hemi.groundColor);
+    const ink = 1 - k * (1 - rig.ink);
+    L.ink = s.ink * ink;
+    for (const [m, w] of s.outlined) { m.outlineWidth = w * ink; m.renderOutline = ink > 0; }
     // Her toon bands take the same light (as Graphics derives them from its rig).
     ToonPlugin.sun.copyFrom(L.sun.diffuse).scaleInPlace(L.sun.intensity / Math.PI);
     ToonPlugin.ambient.copyFrom(L.hemi.diffuse).addInPlace(L.hemi.groundColor)
-      .scaleInPlace(0.5 * (s.hi + (SHOP_TOON_FILL * lv - s.hi) * k) / Math.PI);
+      .scaleInPlace(0.5 * (s.hi + (rig.toonFill - s.hi) * k) / Math.PI);
   }
 
   /** Exactly the saved outdoor rig again; what `drawn()` lists re-reads the sky. */

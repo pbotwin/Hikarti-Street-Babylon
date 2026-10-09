@@ -392,10 +392,12 @@ class GarmentPlugin extends MaterialPluginBase {
         else if (pat > 3.5 && pat < 4.5) dye = mix(dye, acc, mix(smoothstep(0.17, 0.13, length(fract(p * 40.0) - 0.5)), 0.07, blur(p.x * 40.0)));
         else if (pat > 4.5 && pat < 5.5) dye = mix(dye, acc, mix(smoothstep(0.06, 0.0, abs(fract(p.x * 100.0) - 0.5) - 0.42), 0.14, blur(p.x * 100.0)));
         else if (pat > 5.5 && vPrint.x > -0.5) dye = mix(dye, dye * 1.6 + 0.05, 0.6 * smoothstep(0.3, 0.0, abs(fract(vPrint.x * 2.0) - 0.5)) * smoothstep(0.95, 0.4, vPrint.y));
-        // The weave.
+        // The weave, faint: cloth reads as flat anime colour with a hint of
+        // its fabric. At full strength (±10–15 % in a 6 cm repeat) it showed
+        // as grain up close and greyed the dye once filtered far away.
         float w = fab < 0.5 ? f.r : fab < 1.5 ? f.a : fab < 2.5 ? f.g : fab < 3.5 ? f.b : fab < 4.5 ? f.g : f.b;
-        if (fab > 1.5 && fab < 2.5) dye = mix(dye * 0.72, mix(dye, vec3(0.75, 0.78, 0.84), 0.4), w);
-        else dye *= fab < 0.5 ? mix(0.8, 1.1, w) : fab < 1.5 ? mix(0.86, 1.07, w) : fab < 4.5 ? mix(0.88, 1.06, w) : mix(0.9, 1.05, w);
+        if (fab > 1.5 && fab < 2.5) dye = mix(dye * 0.84, mix(dye, vec3(0.75, 0.78, 0.84), 0.25), w);
+        else dye *= fab < 0.5 ? mix(0.92, 1.04, w) : fab < 1.5 ? mix(0.94, 1.03, w) : fab < 4.5 ? mix(0.95, 1.025, w) : mix(0.96, 1.02, w);
         vec3 col = dye * shade;
         if (vPrint.x > -0.5) {
           vec2 q = clamp(vPrint.xy, 0.01, 0.99);
