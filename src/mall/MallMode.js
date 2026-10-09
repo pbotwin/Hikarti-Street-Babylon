@@ -58,6 +58,7 @@ export class MallMode {
     const fashion = ctx.fashion = new MallFashion(ctx);
     this.modules = [world, new MallShopping(ctx), fashion, new MallShoppers(ctx)];
     await Promise.all(this.modules.slice(1).map((m) => m.init()));
+    this._restale();
     d.ui.setLoading(0.85, 'Opening the doors…');
     // Shaders and geometry finished on the GPU now, not on first sight.
     await d.graphics.warmUp(new Set(this._sleeping));
@@ -132,20 +133,19 @@ export class MallMode {
     // (readiness, vertex counts and LOD lookups come before the enabled test):
     // ~2,600 sleeping city meshes were ~25% of a frame in the mall (that pass
     // 3.8–4.2 ms → 0.6 ms at CPU 4× without them). The trip's candidates are
-    // the meshes awake, listed again only when meshes come or go.
-    const asleep = new Set();
-    for (const n of this._sleeping) {
-      if (n.getTotalVertices) asleep.add(n);
-      for (const m of n.getChildMeshes(false)) asleep.add(m);
-    }
+    // the meshes awake, listed again when meshes come or go (and once the
+    // modules are in: the shoppers are city residents moved out of their
+    // sleeping root by then, and a list made before left them all undrawn).
+    const roots = new Set(this._sleeping);
+    const asleep = (m) => { for (let n = m; n; n = n.parent) if (roots.has(n)) return true; return false; };
     const awake = { data: [], length: 0 };
     let stale = true;
-    const restale = () => { stale = true; };
+    const restale = this._restale = () => { stale = true; };
     this._meshObservers = [scene.onNewMeshAddedObservable.add(restale), scene.onMeshRemovedObservable.add(restale)];
     this._allCandidates = scene.getActiveMeshCandidates;
     scene.getActiveMeshCandidates = () => {
       if (stale) {
-        awake.data = scene.meshes.filter((m) => !asleep.has(m));
+        awake.data = scene.meshes.filter((m) => !asleep(m));
         awake.length = awake.data.length;
         stale = false;
       }
@@ -158,7 +158,7 @@ export class MallMode {
     scene.getActiveMeshCandidates = this._allCandidates;
     scene.onNewMeshAddedObservable.remove(this._meshObservers[0]);
     scene.onMeshRemovedObservable.remove(this._meshObservers[1]);
-    this._meshObservers = this._allCandidates = null;
+    this._meshObservers = this._allCandidates = this._restale = null;
     for (const n of this._sleeping) if (!n.isDisposed?.()) n.setEnabled(true);
     this._sleeping = [];
   }
