@@ -26,10 +26,12 @@ const SHADOW_BACK = 70;
 const SHADOW_NEAR = 1, SHADOW_FAR = 140;    // the shadow camera's depth range (m from the light)
 
 export const PRESETS = {
-  low: { label: 'Low', scale: 0.75, shadow: 1024, msaa: 1, fxaa: true, bloom: false, rays: 0 },
-  medium: { label: 'Medium', scale: 1, shadow: 2048, msaa: 2, fxaa: false, bloom: true, rays: 10 },
-  high: { label: 'High', scale: 1, shadow: 2048, msaa: 4, fxaa: false, bloom: true, rays: 20 },
-  ultra: { label: 'Ultra', scale: 1, shadow: 4096, msaa: 4, fxaa: false, bloom: true, rays: 20 },
+  // dpr / pixels: the original's render resolution, the device ratio capped
+  // by both (a fixed 1.5 cap rendered 3x phones at half their resolution).
+  low: { label: 'Low', dpr: 1, pixels: 1.1e6, shadow: 1024, msaa: 1, fxaa: true, bloom: false, rays: 0 },
+  medium: { label: 'Medium', dpr: 1.5, pixels: 2.2e6, shadow: 2048, msaa: 2, fxaa: false, bloom: true, rays: 10 },
+  high: { label: 'High', dpr: 2, pixels: 3.7e6, shadow: 2048, msaa: 4, fxaa: false, bloom: true, rays: 20 },
+  ultra: { label: 'Ultra', dpr: 2.5, pixels: 8.3e6, shadow: 4096, msaa: 4, fxaa: false, bloom: true, rays: 20 },
 };
 
 /** Preset for this device from the GPU name, platform and memory. */
@@ -139,6 +141,8 @@ export class Graphics {
     this.shadowInterval = 15;          // ms; 15 ≈ every frame at 60 fps, 31 = 30 Hz
     this._shadowAt = -Infinity;
     this._scaleDirty = false;
+    // The pixel budget depends on the window (rotation, resizing).
+    addEventListener('resize', () => { this._scaleDirty = true; });
     // Draw calls of the last frame (shadow maps and post passes included).
     const counter = engine._drawCalls;
     this._calls = 0;
@@ -158,10 +162,14 @@ export class Graphics {
     });
   }
 
+  /** Render resolution: the device ratio capped by the preset's ratio and pixel budget, times the adaptive scale. */
   _applyScale() {
     const p = PRESETS[this.tier] || PRESETS.medium;
     this._scaleDirty = false;
-    this.engine.setHardwareScalingLevel(1 / (Math.min(devicePixelRatio, this.tier === 'ultra' ? 2 : 1.5) * p.scale * this.quality));
+    const budget = Math.sqrt(p.pixels / Math.max(1, innerWidth * innerHeight));
+    const level = 1 / Math.max(0.75, Math.min(devicePixelRatio, p.dpr, budget) * this.quality);
+    // Only on a change: setting it resizes the engine, which asks for this again.
+    if (level !== this.engine.getHardwareScalingLevel()) this.engine.setHardwareScalingLevel(level);
   }
 
   /** Render-scale multiplier (1 = the preset's resolution), applied on the next frame. */
