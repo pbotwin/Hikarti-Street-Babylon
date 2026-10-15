@@ -62,11 +62,15 @@ export class SideMissionUI {
     this.action.setAttribute('aria-label', label ? `${label} (F)` : 'Talk');
   }
 
-  renderTracker({ mission, completed, total, coins, distance, activeCount }) {
+  /**
+   * The followed favor, or with none running the nearest one on offer
+   * (`suggest`: its title and giver), so there is always somewhere to go.
+   */
+  renderTracker({ mission, suggest, completed, total, coins, distance, activeCount }) {
     this.wallet.textContent = `${coins} coins`;
     this.count.textContent = `${completed} / ${total} complete${activeCount > 1 ? ` · ${activeCount} active` : ''}`;
-    this.title.textContent = mission?.title || (completed === total ? 'A friend of Hikari' : 'Meet your neighbors');
-    this.objective.textContent = mission?.objective || (completed === total
+    this.title.textContent = mission?.title || suggest?.title || (completed === total ? 'A friend of Hikari' : 'Meet your neighbors');
+    this.objective.textContent = mission?.objective || (suggest ? `Talk to ${suggest.giver} (marked !) to begin` : completed === total
       ? 'Every neighborhood story is complete. Enjoy the district!'
       : 'Talk to residents marked ! to discover side missions.');
     this.distance.textContent = Number.isFinite(distance) ? `${Math.round(distance)} m` : '';

@@ -91,7 +91,7 @@ async function boot() {
   const settings = new GraphicsSettings({ gfx, lighting, npcs });
   // Frame-rate mode and quality governor (?noadapt turns both off, for tests).
   const adaptive = new AdaptivePerformance(gfx, { npcs, enabled: !params.has('noadapt') });
-  const missions = new SideMissionSystem({ scene, state, player, npcs, ui, input, graphics });
+  const missions = new SideMissionSystem({ scene, state, player, npcs, ui, input, graphics, animation, character });
   const minimap = new Minimap(document.getElementById('ui'), { player, cameraRig, collectibles, portal, missions, npcs, world });
   const fps = new FpsMeter(document.getElementById('ui'), () => ({
     calls: graphics.drawCalls(), triangles: graphics.triangles(), width: engine.getRenderWidth(), height: engine.getRenderHeight(),
@@ -106,6 +106,8 @@ async function boot() {
   // Walk-in shop interiors (built once the residents' models are in, below).
   const interiors = new InteriorSystem({ scene, collision, state, player, animation, character, cameraRig, gfx, shops, ui, input, audio, minimap, vehicles, carLights, npcs, world });
   shops.interiors = interiors;
+  // Mission props (a parcel, a watering can) stay out of her hands inside a shop.
+  missions.interiors = interiors;
   const saves = new SaveSystem({ state, player, cameraRig, collectibles, portal, missions, vehicles, world, collision, audio, ui, shops });
   ui.saves = saves;
   const hudMenu = new HudMenu(document.getElementById('ui'), { state, collectibles, audio, minimap, missions, input, graphics: settings, adaptive, saves, shops });

@@ -1,9 +1,10 @@
 import { places } from './Places.js';
 
 /**
- * What a resident says when the heroine talks to them, built from what they
- * remember (Mind.js), what they are doing (Life.js) and what they know about
- * the town. Every line is short and specific to this resident.
+ * What a resident says when the heroine talks to them, built from who they
+ * are (their persona: greetings and lines in their own manner, Personas.js),
+ * what they remember (Mind.js), what they are doing (Life.js) and what they
+ * know about the town. Every line is short and specific to this resident.
  */
 
 /** Neighbourhood name for a point (same districts as the map). */
@@ -71,9 +72,17 @@ function telling(fact, listener, nameOf) {
   }
 }
 
+/** One of a persona's lines about themselves, never the same one twice running. */
+function selfLine(persona, m) {
+  const n = persona.self.length;
+  const i = m.lastSelf == null ? Math.floor(Math.random() * n) : (m.lastSelf + 1 + Math.floor(Math.random() * (n - 1))) % n;
+  m.lastSelf = i;
+  return persona.self[i];
+}
+
 /** A conversational line for this resident right now. */
 export function lineFor(item, minds, ctx = {}) {
-  const m = item.mind, P = m.player, L = item.life, sp = item.spec;
+  const m = item.mind, P = m.player, L = item.life, sp = item.spec, persona = item.persona;
   const out = [];
   const others = ctx.byId || new Map();
   const nameOf = (id) => others.get(id)?.name || id;
@@ -85,7 +94,8 @@ export function lineFor(item, minds, ctx = {}) {
     : `Hey — you’re the one who nearly ran me over! I’m ${sp.name}, by the way. Please be more careful.`);
 
   if (!P.met && !wary) {
-    out.push(pick([`Oh, hello! I don’t think we’ve met. I’m ${sp.name} — ${sp.role.toLowerCase()}.`, `Hi there, you’re new around here? I’m ${sp.name}.`]));
+    // They introduce themselves in their own words.
+    out.push(persona ? pick(persona.hello) : pick([`Oh, hello! I don’t think we’ve met. I’m ${sp.name} — ${sp.role.toLowerCase()}.`, `Hi there, you’re new around here? I’m ${sp.name}.`]));
     // Heard about her already?
   }
   if (!P.met) {
@@ -94,6 +104,7 @@ export function lineFor(item, minds, ctx = {}) {
   } else if (!wary) {
     const n = P.talks;
     if (P.missions.length) out.push(pick([`It’s you! I still remember “${P.missions[P.missions.length - 1]}”. Thank you again.`, `My favourite helper is back!`]));
+    else if (persona) out.push(pick(persona.again));
     else if (n > 6) out.push(pick(['Back again? You’re becoming a regular face around here.', 'Hi again! You really do get around this town.']));
     else if (Date.now() - P.prevTalk < 10 * 60 * 1000) out.push(pick(['Oh, you again! Did you forget something?', 'Hi again — back so soon?']));
     else out.push(pick(['Oh, hello again!', 'Nice to see you again.', 'Good to see you!']));
@@ -136,8 +147,11 @@ export function lineFor(item, minds, ctx = {}) {
       break;
     }
   }
-  // 3. What they're doing / need right now (their own life).
-  if (L?.intent && DOING[L.intent]) useful.push(DOING[L.intent]);
+  // 3. What they're doing right now, or (with nothing particular on) something
+  //    about themselves in their own words.
+  const doing = L?.intent && DOING[L.intent];
+  if (persona && (!doing || /^(work|stroll|explore)$/.test(L.intent) || Math.random() < 0.4)) useful.push(selfLine(persona, m));
+  else if (doing) useful.push(doing);
   out.push(...useful.slice(0, 2));
 
   if (out.length >= 3) return out.slice(0, 3).join(' ');

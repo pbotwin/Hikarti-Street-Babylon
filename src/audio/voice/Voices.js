@@ -52,23 +52,31 @@ export class Voices {
     else this.stop();
   }
 
-  /** Voice for a resident: gender and age from their spec, stable per id. */
+  /**
+   * Voice for a resident: their persona's (npcs/Personas.js: chosen for
+   * their age and temperament), else one from gender and role, stable per id.
+   */
   profile(item) {
     if (this.profiles.has(item.id)) return this.profiles.get(item.id);
     const male = item.look?.gender === 'm';
-    const list = male ? MALE : FEMALE;
-    const h = hash(item.id), role = (item.spec?.role || '').toLowerCase();
-    const older = /longtime|guide|planner|librarian/.test(role);
-    const young = /student|school/.test(role);
-    // Spread residents over the voices in order of quality.
-    const idx = Math.floor(h * Math.min(list.length, male ? 6 : 9));
-    const p = {
-      voice: list[idx],
-      speed: (older ? 0.9 : young ? 1.06 : 1) * (0.96 + hash(item.id + 's') * 0.08),
-      // Small pitch offset (playback rate) so two people sharing a voice differ.
-      pitch: (older ? 0.95 : young ? 1.04 : 1) * (0.975 + hash(item.id + 'p') * 0.05),
-      male,
-    };
+    const own = item.persona?.voice;
+    let p;
+    if (own) p = { voice: own.id, speed: own.speed, pitch: own.pitch, male };
+    else {
+      const list = male ? MALE : FEMALE;
+      const h = hash(item.id), role = (item.spec?.role || '').toLowerCase();
+      const older = /longtime|guide|planner|librarian/.test(role);
+      const young = /student|school/.test(role);
+      // Spread residents over the voices in order of quality.
+      const idx = Math.floor(h * Math.min(list.length, male ? 6 : 9));
+      p = {
+        voice: list[idx],
+        speed: (older ? 0.9 : young ? 1.06 : 1) * (0.96 + hash(item.id + 's') * 0.08),
+        // Small pitch offset (playback rate) so two people sharing a voice differ.
+        pitch: (older ? 0.95 : young ? 1.04 : 1) * (0.975 + hash(item.id + 'p') * 0.05),
+        male,
+      };
+    }
     this.profiles.set(item.id, p);
     return p;
   }

@@ -65,10 +65,11 @@ right.
 - Tests updated (`scripts/side-missions.test.mjs`, exploration check).
 
 ### 4. Mall / escalators
-Keep the verified behaviour. Check whether the car can be driven into the
-mall through the automatic doors (the door opens for her even in the car);
-if so, doors ignore her while she drives and bollards close the entrance
-crossings to cars.
+Keep the verified behaviour. Checked: the car could be driven through the
+(collider-less) automatic doors and across the concourse up to the
+escalators, from a pedestrian crossing's gap in the sidewalk bollards. Fix:
+a row of bollards before each entrance, gaps for people and carts (the walk
+graph crosses at the centre), too narrow for a car.
 
 ### 5. QA
 `npm test`, exploration check, perf check, build; a scripted talk with

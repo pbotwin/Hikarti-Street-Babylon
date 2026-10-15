@@ -1,17 +1,28 @@
-import { TransformNode, MeshBuilder, Mesh, PBRMaterial, Color3, VertexData } from '@babylonjs/core';
+import { TransformNode, MeshBuilder, Mesh, PBRMaterial, Color3, VertexData, Vector3 } from '@babylonjs/core';
 import { basicMaterial } from './FxKit.js';
 import { Phase } from '../core/GameState.js';
 import { SideMissionUI } from '../ui/SideMissionUI.js';
+import { placeInHand } from '../player/HandProps.js';
 import { SIDE_MISSIONS, NPC_FALLBACKS, NPC_GREETINGS, createMissionRecords } from './SideMissionData.js';
 
 const TALK_RADIUS = 2.65;
 const OBJECTIVE_RADIUS = 2.1;
+// How long each objective's act takes (s): picking a parcel up, watering, framing a shot.
+const ACT_SECONDS = { parcel: 1.2, garden: 1.6, vista: 1.4 };
 const horizontalDistance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const _v = new Vector3();
 
-/** Optional errands, kept independent from the energy-fragment story. */
+/**
+ * Optional errands, kept independent from the energy-fragment story. What a
+ * giver hands her is carried in sight (the café order, Hana's watering can,
+ * the parcels she picks up, Sora's camera at a viewpoint) through the
+ * heroine's act layer; each objective is a short act with her controls held.
+ */
 export class SideMissionSystem {
-  constructor({ scene, state, player, npcs, ui, input, view, graphics = null }) {
-    Object.assign(this, { scene, state, player, npcs, ui, input, graphics });
+  constructor({ scene, state, player, npcs, ui, input, view, graphics = null, animation = null, character = null }) {
+    Object.assign(this, { scene, state, player, npcs, ui, input, graphics, animation, character });
+    this.interiors = null;    // InteriorSystem (main.js): her arms are a shop's inside
     this.records = createMissionRecords();
     state.sideMissions = this.records;
     state.coins ??= 0;
@@ -20,6 +31,10 @@ export class SideMissionSystem {
     this._tracked = null;
     this._time = 0;
     this._trackerTimer = 0;
+    this._act = null;                         // the objective act running: { mission, objective, item, t, d, done, yaw0, yaw1 }
+    this._carry = { kind: null, w: 0, owned: false };   // what she carries and how far her arm has taken it
+    this._reach = { x: 0, y: 0, z: 0, w: 0 };
+    this._hands = { wl: 0, wr: 0, l: [0, 0, 0], r: [0, 0, 0] };
     this.objects = [];
     this.group = new TransformNode('Neighborhood side missions', scene);
     this.view = view || new SideMissionUI(ui.root || input.root, {
@@ -130,6 +145,7 @@ export class SideMissionSystem {
    */
   restore(records = {}, tracked = null) {
     this.closeDialog();
+    this._endAct();
     const fresh = createMissionRecords();
     for (const [id, record] of Object.entries(fresh)) {
       const saved = records[id];
@@ -151,6 +167,7 @@ export class SideMissionSystem {
 
   reset() {
     this.closeDialog();
+    this._endAct();
     this.records = createMissionRecords();
     this.state.sideMissions = this.records;
     this.state.coins = this._initialCoins;
@@ -174,6 +191,8 @@ export class SideMissionSystem {
         item.prop.rotation.y = this._time * .45 + item.offset;
       }
     }
+    this._updateAct(dt);
+    this._updateCarry(dt);
     const nearest = this._canInteract() ? this._nearest() : null;
     this.view.setPrompt(nearest ? (nearest.type === 'npc' ? `Talk to ${nearest.npc.name}` : nearest.objective.action) : null);
     this._trackerTimer -= dt;
@@ -190,7 +209,7 @@ export class SideMissionSystem {
     if (!target) return false;
     this.input.interactPressed = false;
     if (target.type === 'npc') this._talk(target.npc);
-    else this._completeObjective(target.mission, target.objective);
+    else this._beginAct(target.mission, target.objective);
     return true;
   }
 
@@ -207,8 +226,8 @@ export class SideMissionSystem {
   }
 
   _canInteract() {
-    return this.state.phase === Phase.PLAYING && this.input.enabled && !this.dialogOpen &&
-      !this.player.ride && !this.player.autoWalk && !this.player.climb && this.player.grounded !== false;
+    return this.state.phase === Phase.PLAYING && this.input.enabled && !this.dialogOpen && !this._act &&
+      !this.player.ride && !this.player.hold && !this.player.autoWalk && !this.player.climb && this.player.grounded !== false;
   }
 
   _npcPosition(id) {
@@ -244,22 +263,26 @@ export class SideMissionSystem {
 
   /**
    * The mission line this resident would say right now, or null when they
-   * have no mission business with her (then they talk from memory).
+   * have no mission business with her (then they talk from memory): a
+   * delivery for them, their own errand, or a word about one not yet begun.
    */
   _missionText(npc) {
     const delivery = SIDE_MISSIONS.find((mission) => this.records[mission.id].status === 'active' &&
       mission.objectives.some((objective) => objective.npc === npc.id && !this.records[mission.id].completed.includes(objective.id)));
     if (delivery) return 'Is that from Aoi’s café? I haven’t had a moment to leave the stalls. That smells wonderful!';
     const mission = SIDE_MISSIONS.find((item) => item.giver === npc.id);
-    if (!mission) return null;
-    const record = this.records[mission.id];
-    if (record.status === 'available') return mission.offer;
-    if (record.status === 'ready') return mission.thanks;
-    if (record.status === 'active') {
-      const journal = this.getJournal().find((item) => item.id === mission.id);
-      return `Thanks again for helping! ${journal.objective}. Your map marks the places to visit. Come back when you’re finished.`;
+    if (mission) {
+      const record = this.records[mission.id];
+      if (record.status === 'available') return mission.offer;
+      if (record.status === 'ready') return mission.thanks;
+      if (record.status === 'active') {
+        const journal = this.getJournal().find((item) => item.id === mission.id);
+        return `Thanks again for helping! ${journal.objective}. Your map marks the places to visit. Come back when you’re finished.`;
+      }
+      return null;
     }
-    return null;
+    const hinted = SIDE_MISSIONS.find((item) => this.records[item.id].status === 'available' && item.hints?.[npc.id]);
+    return hinted ? hinted.hints[npc.id] : null;
   }
 
   /** What `npc` would say if she talked to them now (so their voice can be prepared). */
@@ -345,6 +368,131 @@ export class SideMissionSystem {
     this.ui.toast('Side mission started', mission.title);
   }
 
+  // ------------------------------------------------------------ objective acts
+  /**
+   * The act at an objective: she turns to it and, with her controls held,
+   * bends down for the parcel, pours over the planter or raises the camera;
+   * the objective counts halfway through, when the thing changes hands.
+   */
+  _beginAct(mission, objective) {
+    const item = this.objects.find((o) => o.objective === objective);
+    const pl = this.player, p = item.group.position;
+    this._act = { mission, objective, item, t: 0, d: ACT_SECONDS[mission.kind], done: false,
+      yaw0: pl.yaw, yaw1: Math.atan2(p.x - pl.position.x, p.z - pl.position.z) };
+    pl.hold = true;
+    this.view.setPrompt(null);
+  }
+
+  _updateAct(dt) {
+    const a = this._act;
+    if (!a) return;
+    a.t += dt;
+    const k = Math.min(1, a.t / a.d), w = Math.sin(k * Math.PI), pl = this.player, act = this.animation?.act;
+    // She turns to face it over the first third.
+    pl.yaw = a.yaw0 + wrap(a.yaw1 - a.yaw0) * Math.min(1, k * 3);
+    if (act) {
+      if (a.mission.kind === 'parcel') act.crouch = w;
+      else {
+        // The right hand to the planter's rim, or the camera up before her eyes.
+        const R = this._reach, p = a.item.group.position, s = Math.sin(pl.yaw), c = Math.cos(pl.yaw);
+        if (a.mission.kind === 'garden') { R.x = p.x - s * .25; R.y = p.y + .62; R.z = p.z - c * .25; }
+        else { R.x = pl.position.x + s * .32; R.y = pl.position.y + 1.38; R.z = pl.position.z + c * .32; }
+        R.w = w;
+        act.reach = R;
+        act.holdR = Math.max(act.holdR, w);
+      }
+    }
+    if (!a.done && k >= .5) { a.done = true; this._completeObjective(a.mission, a.objective); }
+    if (k >= 1) this._endAct();
+  }
+
+  _endAct() {
+    if (!this._act) return;
+    const act = this.animation?.act;
+    if (act) { if (act.reach === this._reach) act.reach = null; act.crouch = 0; }
+    this.player.hold = false;
+    this._act = null;
+  }
+
+  // ------------------------------------------------------------ what she carries
+  /** The mission prop in her hands now (one thing at a time, by priority), or null. */
+  _carriedKind() {
+    // Handed back with the reward: carried until then (the order goes to Emi).
+    const held = (mission) => { const r = this.records[mission.id]; return r.status === 'active' || (r.status === 'ready' && mission.kind !== 'delivery'); };
+    // What the act needs comes first: the can tips over the planter, the camera comes out.
+    const acting = this._act?.mission;
+    if (acting && (acting.carry === 'can' || acting.carry === 'camera') && held(acting)) return acting.carry;
+    for (const carry of ['order', 'can', 'parcels']) {
+      const mission = SIDE_MISSIONS.find((m) => m.carry === carry);
+      if (!mission || !held(mission) || (carry === 'parcels' && !this.records[mission.id].completed.length)) continue;
+      return carry;
+    }
+    return null;
+  }
+
+  /**
+   * Her arms hold what the running mission gave her, outdoors and on foot
+   * (inside a shop or on a ride her hands are elsewhere): the order or the
+   * watering can hang from her right hand, the parcels sit on both, the
+   * camera is in her palm while she frames a shot. The prop follows the
+   * hand each frame, posed through the act layer like a shop's bag.
+   */
+  _updateCarry(dt) {
+    const act = this.animation?.act, pl = this.player;
+    if (!act) return;
+    const free = this.state.phase === Phase.PLAYING && !pl.ride && !pl.climb && !this.interiors?.inside && !this.interiors?.handsBusy;
+    const kind = free ? this._carriedKind() : null;
+    const c = this._carry;
+    if (kind !== c.kind) {
+      // Hands free of the last thing before the next (its pose is not the new one's).
+      if (c.owned) { act.bag = 0; act.holdR = 0; if (act.hands === this._hands) act.hands = null; }
+      this._showHandProps(kind);
+      c.kind = kind;
+      c.w = 0;
+    }
+    c.w += ((kind ? 1 : 0) - c.w) * (1 - Math.exp(-8 * dt));
+    if (!kind && c.w < .001) {
+      if (c.owned) { act.bag = 0; act.holdR = 0; if (act.hands === this._hands) act.hands = null; c.owned = false; }
+      return;
+    }
+    c.owned = true;
+    const yaw = pl.yaw, props = this.handProps;
+    if (kind === 'parcels') {
+      // The stack before her waist, a hand on each side of it.
+      const m = this.character.root.getWorldMatrix(), H = this._hands;
+      Vector3.TransformCoordinatesFromFloatsToRef(0, .8, .3, m, _v);
+      props.parcels.position.copyFrom(_v);
+      props.parcels.rotation.y = yaw;
+      Vector3.TransformCoordinatesFromFloatsToRef(.24, .9, .3, m, _v);
+      H.l[0] = _v.x; H.l[1] = _v.y; H.l[2] = _v.z;
+      Vector3.TransformCoordinatesFromFloatsToRef(-.24, .9, .3, m, _v);
+      H.r[0] = _v.x; H.r[1] = _v.y; H.r[2] = _v.z;
+      H.wl = H.wr = c.w;
+      act.hands = H;
+      act.holdR = c.w;
+    } else if (kind === 'order' || kind === 'can') {
+      // Pouring: the hand goes to the rim (act.reach wins over the bag pose) with the can in the palm, tipped.
+      const pouring = kind === 'can' && this._act ? Math.sin(Math.min(1, this._act.t / this._act.d) * Math.PI) : 0;
+      act.bag = c.w * (1 - pouring);
+      act.holdR = c.w;
+      placeInHand(this.character, props[kind], kind === 'can' && this._act ? 'palm' : 'hang', yaw, -1.2 * pouring);
+    } else {
+      act.holdR = c.w;
+      placeInHand(this.character, props.camera, 'palm', yaw);
+    }
+  }
+
+  _showHandProps(kind) {
+    for (const [name, node] of Object.entries(this.handProps)) node.setEnabled(name === kind);
+  }
+
+  /** The parcel stack shows as many boxes as she has picked up. */
+  _syncHandProps() {
+    const parcels = SIDE_MISSIONS.find((mission) => mission.carry === 'parcels');
+    const n = parcels ? this.records[parcels.id].completed.length : 0;
+    this._parcelBoxes.forEach((box, i) => box.setEnabled(i < n));
+  }
+
   _completeObjective(mission, objective) {
     const record = this.records[mission.id];
     if (record.status !== 'active' || record.completed.includes(objective.id)) return;
@@ -387,8 +535,17 @@ export class SideMissionSystem {
     const tracked = journal.find((mission) => mission.id === this._tracked && mission.status !== 'completed');
     const mission = tracked || active[0];
     const markers = mission ? this.getMarkers().filter((marker) => marker.id === mission.id || marker.missionId === mission.id) : [];
-    const distance = markers.length ? Math.min(...markers.map((marker) => horizontalDistance(this.player.position, marker))) : null;
-    this.view.renderTracker({ mission, completed: journal.filter((item) => item.status === 'completed').length,
+    let distance = markers.length ? Math.min(...markers.map((marker) => horizontalDistance(this.player.position, marker))) : null;
+    // Nothing running: the nearest favor on offer is the way to go.
+    let suggest = null;
+    if (!mission) {
+      for (const item of journal) {
+        if (item.status !== 'available') continue;
+        const d = horizontalDistance(this.player.position, this._npcPosition(item.giverId));
+        if (!suggest || d < distance) { suggest = { title: item.title, giver: item.giver }; distance = d; }
+      }
+    }
+    this.view.renderTracker({ mission, suggest, completed: journal.filter((item) => item.status === 'completed').length,
       total: journal.length, coins: this.state.coins, distance, activeCount: active.length });
   }
 
@@ -499,8 +656,45 @@ export class SideMissionSystem {
       }
       if (frameSource) frameSource.isVisible = false;
     }
+    this._buildHandProps(part, { paper: material('#efe2c8'), tin: material('#8fa3a6'), cardboard, ribbon, camera, lens });
     this.graphics?.addCasters(casters);
     this._syncObjects();
+  }
+
+  /**
+   * What she carries, placed at her hand each frame (_updateCarry): the
+   * café order (a paper bag, its handles in her hand), the watering can
+   * (hung by its handle, tipped to pour), the parcel stack (on both hands),
+   * Sora's camera (in her palm). Hidden with the group, so not in the mall.
+   */
+  _buildHandProps(part, M) {
+    const node = (name) => { const n = new TransformNode(`mission ${name}`, this.scene); n.parent = this.group; n.setEnabled(false); return n; };
+    const box = (parent, mat, w, h, d, x, y, z) => { const m = part('box', mat, parent, true); m.scaling.set(w, h, d); m.position.set(x, y, z); return m; };
+    // Origins at the base; 'hang' puts the base 0.36 m below the palm, the handles in it.
+    const order = node('order');
+    box(order, M.paper, .26, .3, .16, 0, .15, 0);
+    box(order, M.paper, .18, .36, .012, 0, .18, 0);
+    const can = node('can');
+    const body = part('lens', M.tin, can, true);
+    body.scaling.set(.85, 2.1, .85); body.position.y = .126;
+    box(can, M.tin, .035, .035, .3, 0, .2, .16).rotation.x = .55;       // spout
+    box(can, M.tin, .03, .12, .03, 0, .31, 0);                           // handle stem
+    box(can, M.tin, .16, .03, .03, 0, .37, 0);
+    const parcels = node('parcels');
+    this.handProps = { order, can, parcels, camera: node('camera') };
+    this._parcelBoxes = [0, 1, 2].map((i) => {
+      const holder = new TransformNode(`mission parcel ${i}`, this.scene);
+      holder.parent = parcels;
+      holder.position.y = .11 + i * .22;
+      box(holder, M.cardboard, .42, .22, .3, 0, 0, 0);
+      box(holder, M.ribbon, .08, .226, .31, 0, 0, 0);
+      holder.setEnabled(false);
+      return holder;
+    });
+    const camera = this.handProps.camera;
+    box(camera, M.camera, .19, .12, .07, 0, 0, 0);
+    const glass = part('lens', M.lens, camera, false);
+    glass.scaling.setAll(.5); glass.rotation.x = Math.PI / 2; glass.position.set(.02, 0, .05);
   }
 
   _syncObjects() {
@@ -512,6 +706,7 @@ export class SideMissionSystem {
       item.ring.setEnabled(!done);
       item.flowers?.setEnabled(done);
     }
+    this._syncHandProps();
   }
 }
 

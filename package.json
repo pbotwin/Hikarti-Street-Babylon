@@ -22,7 +22,8 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "kokoro-js": "^1.2.1",
-    "meshoptimizer": "^1.2.0"
+    "meshoptimizer": "^1.2.0",
+    "phonemizer": "^1.2.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",

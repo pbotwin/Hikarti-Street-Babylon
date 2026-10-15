@@ -8,6 +8,7 @@ import { ROOM_H, TEMPLATE_OF, letter, loadRoom } from './InteriorKit.js';
 import { linear, lookFor, productMesh, SHAPE_W, torus } from './Products.js';
 import { createResident, animateResident, eulerToRef } from '../npcs/NPCModels.js';
 import { BASKET_HAND } from '../player/CharacterAnimation.js';
+import { placeInHand, worldPos } from '../player/HandProps.js';
 import { IndoorLight } from '../core/IndoorLight.js';
 import { Storefronts } from './Storefronts.js';
 
@@ -35,22 +36,13 @@ const CAT_OF = { drink: 'drink', food: 'food', read: 'read', top: 'top', bottom:
 // walked in could be deep in the door's alcove, the camera jammed against her.
 const EXIT_STEP = 1.1;
 const SLOT_REACH = 0.75;   // m from a shelf slot's floor spot to take from it
-const _a = new Vector3(), _b = new Vector3(), _c = new Vector3();
+const _a = new Vector3();
 const _q = new Quaternion();
 const ease = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 /** three.js Euler 'XYZ' as a quaternion (scratch: use before the next call). */
 const eulerXYZ = (x, y, z) => eulerToRef(x, y, z, 'XYZ', _q);
-
-/** World position of a node, with its ancestors' matrices brought up to date first. */
-const _chain = [];
-function worldPos(node, out) {
-  _chain.length = 0;
-  for (let n = node; n; n = n.parent) _chain.push(n);
-  for (let i = _chain.length - 1; i >= 0; i--) _chain[i].computeWorldMatrix(true);
-  return out.copyFrom(node.getAbsolutePosition());
-}
 
 const CASHIER_LOOKS = {
   market: { base: 'girl_apron', hair: '#3a2a24', top: '#59b37a', bottom: '#2b2b33', height: 1.6 },
@@ -77,6 +69,7 @@ export class InteriorSystem {
     this.seated = null;
     this.basket = [];         // [{ id, unit, mesh }]
     this.bag = null;          // paid shopping bag in her right hand
+    this.handsBusy = false;   // her arms are the shop's (basket, bag) until they relax outside
     this.anims = [];          // running timelines
     this.held = null;         // product in her right palm: { mesh }
     this.heldBag = null;      // paid bag hanging from her right hand
@@ -476,12 +469,18 @@ export class InteriorSystem {
     }
     const act = this.animation.act;
     // Basket on her arm whenever it holds something; the bag at her side.
-    const carry = this.basket.length && !this._basketDown ? 1 : 0;
-    act.carry = lerp(act.carry, carry, 1 - Math.exp(-8 * dt));
-    act.bag = lerp(act.bag, this.bag && !this._bagFree ? 1 : 0, 1 - Math.exp(-8 * dt));
-    if (this.bag) act.holdR = Math.max(act.holdR, act.bag);
+    // Her arms are the shop's inside and until they have relaxed after it
+    // (handsBusy); outdoors they are the missions' (a parcel, a watering can).
+    if (this.inside || this.handsBusy) {
+      const carry = this.basket.length && !this._basketDown ? 1 : 0;
+      act.carry = lerp(act.carry, carry, 1 - Math.exp(-8 * dt));
+      act.bag = lerp(act.bag, this.bag && !this._bagFree ? 1 : 0, 1 - Math.exp(-8 * dt));
+      if (this.bag) act.holdR = Math.max(act.holdR, act.bag);
+      this.handsBusy = !!this.inside || act.carry > 0.001 || act.bag > 0.001;
+      if (!this.handsBusy) { act.carry = 0; act.bag = 0; }
+    }
     this._placeHeld();
-    if (!this.inside) { act.carry = 0; act.bag = 0; this._setPrompt(null); this._renderBasket(); return; }
+    if (!this.inside) { this._setPrompt(null); this._renderBasket(); return; }
     const room = this.inside.room;
 
     // Doors slide open while she is near them.
@@ -1039,23 +1038,9 @@ export class InteriorSystem {
   }
 
   _placeHeld() {
-    if (!this.held && !this.heldBag) return;
-    const hand = this.character.bone('rightHand'), mid = this.character.bone('rightMiddleProximal');
-    if (!hand) return;
-    const H = worldPos(hand, _a), M = mid ? worldPos(mid, _b) : _b.copyFrom(H);
-    const palm = Vector3.LerpToRef(H, M, 0.75, _c);
     const yaw = this.player.yaw;
-    if (this.held) {
-      const m = this.held.mesh, bb = m.getBoundingInfo?.().boundingBox;
-      const half = bb ? (bb.maximum.y + bb.minimum.y) / 2 * m.scaling.y : 0;
-      m.position.set(palm.x, palm.y - half, palm.z);   // centred in the palm
-      m.rotation.set(0, yaw, 0);
-    }
-    if (this.heldBag) {
-      const m = this.heldBag.mesh;
-      m.position.set(palm.x, palm.y - 0.36, palm.z);   // handles in her hand
-      m.rotation.set(0, yaw + Math.PI / 2, 0);
-    }
+    if (this.held) placeInHand(this.character, this.held.mesh, 'palm', yaw);
+    if (this.heldBag) placeInHand(this.character, this.heldBag.mesh, 'hang', yaw);
   }
 
   /** The paid bag is put away (sitting down, shopping again, leaving). */

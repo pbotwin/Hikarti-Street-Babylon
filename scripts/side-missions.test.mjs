@@ -16,7 +16,7 @@ function createGame({ coins = 0 } = {}) {
       position: new Vector3(spec.x, 0, spec.z) })),
     get(id) { return this.items.find((npc) => npc.id === id); },
   };
-  const player = { position: new Vector3(), grounded: true,
+  const player = { position: new Vector3(), grounded: true, hold: false, yaw: 0,
     collision: { groundHeight: () => 0 } };
   const input = {
     enabled: true, move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, _keys: new Set(),
@@ -52,10 +52,16 @@ function createGame({ coins = 0 } = {}) {
     if (objective.npc) goNPC(objective.npc);
     else player.position.set(objective.x, 0, objective.z);
   };
+  // An objective is a short act with her controls held: it counts halfway through.
   const perform = (objective) => {
     goObjective(objective);
     assert.equal(missions.interact(), true);
     if (objective.npc) choose();
+    else {
+      assert.equal(player.hold, true, 'The act holds her in place');
+      for (let frame = 0; frame < 120; frame++) missions.update(1 / 60);
+      assert.equal(player.hold, false, 'The act lets her go when done');
+    }
   };
   return { missions, state, player, input, npcs, view, snapshots, toasts, goNPC, choose, accept, goObjective, perform };
 }

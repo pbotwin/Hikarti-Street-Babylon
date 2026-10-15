@@ -73,7 +73,11 @@ try {
     assert.equal(await status(mission.id), 'active');
     for (const objective of mission.objectives) {
       if (objective.npc) { await talk(objective.npc); await page.keyboard.press('Enter'); }
-      else { await go(objective.x, objective.z); await page.keyboard.press('f'); }
+      else {
+        await go(objective.x, objective.z); await page.keyboard.press('f');
+        // The objective is a short act (picking up, watering, framing): let it play out.
+        await page.evaluate(() => { for (let i = 0; i < 120; i++) window.__game.simulate(1 / 60); });
+      }
     }
     assert.equal(await status(mission.id), 'ready', `${mission.id} objectives`);
     await talk(mission.giver); await page.keyboard.press('Enter');

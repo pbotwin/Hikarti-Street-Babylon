@@ -1,5 +1,6 @@
 import { TransformNode } from '@babylonjs/core';
 import { NPC_SPECS } from './NPCDefinitions.js';
+import { PERSONAS } from './Personas.js';
 import { createResident, animateResident, loadBase, disposeResident, setMorph, manualPose, syncPose } from './NPCModels.js';
 import { billboard, billboardMaterial, disposeBillboards } from './Billboard.js';
 import { Life } from './life/Life.js';
@@ -88,6 +89,8 @@ export class NPCSystem {
       marker.position.y = 2.48 * (spec.scale || 1);
       return {
         id: spec.id, name: spec.name, role: spec.role, position: root.position, root, spec,
+        // Their own lines and voice (Personas.js); Talk.js and Voices.js read it.
+        persona: PERSONAS[spec.id] || null,
         label, marker, markerStatus: null, routeIndex: 1, wait: index * 0.23,
         phase: index * 1.73, speed: 0, facing: spec.yaw || 0, distance: Infinity, nearby: false, shown: true,
       };

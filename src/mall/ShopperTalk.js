@@ -25,9 +25,15 @@ const DOING = {
   leave: ['That\'s everything. See you back on Hikari Street!', 'Time to get all this home before the ice cream melts.'],
 };
 
-/** A line for shopper `s` (stage: 'arrive' | 'shop' | 'queue' | 'leave', clothes: browsing the racks). */
+/**
+ * A line for shopper `s` (stage: 'arrive' | 'shop' | 'queue' | 'leave',
+ * clothes: browsing the racks), opened the way this resident greets people
+ * (their persona: a hello with their name until they have met).
+ */
 export function shopperLine(s) {
-  if (s.clothes && Math.random() < 0.7) return pick(FASHION)(pick(CLOTHES));
-  if (Math.random() < 0.55) return pick(TIPS)(pick(GROCERIES));
-  return pick(DOING[s.stage] || DOING.shop);
+  const p = s.item?.persona;
+  const greeting = p ? pick(s.item.mind?.player.met ? p.again : p.hello) + ' ' : '';
+  if (s.clothes && Math.random() < 0.7) return greeting + pick(FASHION)(pick(CLOTHES));
+  if (Math.random() < 0.55) return greeting + pick(TIPS)(pick(GROCERIES));
+  return greeting + pick(DOING[s.stage] || DOING.shop);
 }

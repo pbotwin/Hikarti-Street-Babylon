@@ -64,9 +64,16 @@ export async function buildLot(site, mats, signs, vehicles, indoorTrees = []) {
   sidewalkLamps.forEach(([x, z], i) => banners(cast, still, M, signs, x, z, i));
 
   const crossings = [-26.4, -8.8, 0, 8.8, 26.4, ...ENTRANCES.map((e) => e.x)];
+  const bollards = [];
   for (let x = SIDEWALK.x0 + 1; x < SIDEWALK.x1 - 0.5; x += 3.6) {
-    if (crossings.some((c) => Math.abs(c - x) < 2.2)) continue;
-    const z = SIDEWALK.z0 + 0.35;
+    if (!crossings.some((c) => Math.abs(c - x) < 2.2)) bollards.push([x, SIDEWALK.z0 + 0.35]);
+  }
+  // A row before each entrance too: gaps wide enough for people and carts
+  // (the walk graph crosses at the centre), too narrow for a car's body.
+  // From a crossing a car could reach the automatic doors, which have no
+  // collider (they open for her), and be driven round the concourse.
+  for (const e of ENTRANCES) for (const dx of [-2, -0.75, 0.75, 2]) bollards.push([e.x + dx, -1.3]);
+  for (const [x, z] of bollards) {
     cast.cylinder(M.satin, C.dark, x, 0, z, 0.09, 0.85, 10);
     still.cylinder(M.glow, C.light, x, 0.86, z, 0.07, 0.03, 10);
     site.collide(x - 0.1, z - 0.1, x + 0.1, z + 0.1, 0, 0.9, { camera: false });
